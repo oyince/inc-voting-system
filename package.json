@@ -4,8 +4,9 @@
   "description": "INC Voting System Backend with SQLiteCloud",
   "main": "server-admin.js",
   "scripts": {
-    "start": "node server-admin.js",
-    "dev": "nodemon server-admin.js"
+    "install-all": "npm install && cd inc-voting-ui && npm install",
+    "build-ui": "cd inc-voting-ui && npm run build",
+    "start": "node server-admin.js"
   },
   "dependencies": {
     "@sqlitecloud/drivers": "^1.0.739",
