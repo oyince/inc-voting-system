@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "server-admin.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "server-admin.js"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  }
+}
