@@ -3,7 +3,6 @@
 
 require('dotenv').config();
 const express = require("express");
-const Database = require('@sqlitecloud/drivers').Database;
 const http = require("http");
 const { Server } = require("socket.io");
 const session = require("express-session");
@@ -33,9 +32,13 @@ const io = new Server(server, {
 
 // Initialize database connection (SQLiteCloud or local SQLite)
 let db;
+let isCloudDatabase = false;
+
 if (SQLITE_CLOUD_URL) {
   console.log('🌩️  Connecting to SQLiteCloud...');
+  const { Database } = require('@sqlitecloud/drivers');
   db = new Database(SQLITE_CLOUD_URL);
+  isCloudDatabase = true;
   console.log('✅ Connected to SQLiteCloud');
 } else {
   console.log('📁 Using local SQLite database...');
@@ -44,13 +47,48 @@ if (SQLITE_CLOUD_URL) {
   console.log('✅ Connected to local SQLite');
 }
 
+// Helper to normalize SQLiteCloud results to standard format
+function normalizeCloudResult(result) {
+  if (!result) return null;
+  
+  // If it's already an array of objects, return as is
+  if (Array.isArray(result) && result.length > 0 && typeof result[0] === 'object') {
+    return result;
+  }
+  
+  // If it's a SQLiteCloud result object
+  if (result.data && result.columns) {
+    const rows = [];
+    for (let i = 0; i < result.data.length; i++) {
+      const row = {};
+      for (let j = 0; j < result.columns.length; j++) {
+        row[result.columns[j]] = result.data[i][j];
+      }
+      rows.push(row);
+    }
+    return rows;
+  }
+  
+  // If it's a single row object
+  if (typeof result === 'object' && !Array.isArray(result)) {
+    return result;
+  }
+  
+  return result;
+}
+
 // Helper functions to handle both SQLiteCloud and sqlite3 API
 const dbRun = (sql, params = []) => {
   return new Promise((resolve, reject) => {
-    if (SQLITE_CLOUD_URL) {
+    if (isCloudDatabase) {
       // SQLiteCloud
-      db.sql(sql, params)
-        .then(result => resolve({ lastID: result?.lastID, changes: result?.changes }))
+      db.sql(sql, ...params)
+        .then(result => {
+          // Get last insert ID or changes count
+          const lastID = result?.lastRowid || result?.lastID || 0;
+          const changes = result?.rowsChanged || result?.changes || 0;
+          resolve({ lastID, changes });
+        })
         .catch(err => reject(err));
     } else {
       // sqlite3
@@ -64,12 +102,13 @@ const dbRun = (sql, params = []) => {
 
 const dbGet = (sql, params = []) => {
   return new Promise((resolve, reject) => {
-    if (SQLITE_CLOUD_URL) {
+    if (isCloudDatabase) {
       // SQLiteCloud
-      db.sql(sql, params)
+      db.sql(sql, ...params)
         .then(result => {
-          const row = Array.isArray(result) ? result[0] : result;
-          resolve(row);
+          const normalized = normalizeCloudResult(result);
+          const row = Array.isArray(normalized) ? normalized[0] : normalized;
+          resolve(row || null);
         })
         .catch(err => reject(err));
     } else {
@@ -84,11 +123,12 @@ const dbGet = (sql, params = []) => {
 
 const dbAll = (sql, params = []) => {
   return new Promise((resolve, reject) => {
-    if (SQLITE_CLOUD_URL) {
+    if (isCloudDatabase) {
       // SQLiteCloud
-      db.sql(sql, params)
+      db.sql(sql, ...params)
         .then(result => {
-          const rows = Array.isArray(result) ? result : (result ? [result] : []);
+          const normalized = normalizeCloudResult(result);
+          const rows = Array.isArray(normalized) ? normalized : (normalized ? [normalized] : []);
           resolve(rows);
         })
         .catch(err => reject(err));
@@ -96,7 +136,7 @@ const dbAll = (sql, params = []) => {
       // sqlite3
       db.all(sql, params, (err, rows) => {
         if (err) reject(err);
-        else resolve(rows);
+        else resolve(rows || []);
       });
     }
   });
@@ -147,6 +187,7 @@ const upload = multer({
 // Initialize database tables
 async function initializeTables() {
   try {
+    // Create admin users table if it doesn't exist
     await dbRun(`CREATE TABLE IF NOT EXISTS admin_users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
@@ -154,16 +195,24 @@ async function initializeTables() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // Create default admin user
-    const defaultPassword = bcrypt.hashSync('admin123', 10);
-    await dbRun(
-      `INSERT OR IGNORE INTO admin_users (id, username, password_hash) VALUES (1, ?, ?)`,
-      ['admin', defaultPassword]
-    );
+    // Check if default admin exists
+    const existingAdmin = await dbGet('SELECT * FROM admin_users WHERE id = ?', [1]);
+    
+    if (!existingAdmin) {
+      // Create default admin user
+      const defaultPassword = bcrypt.hashSync('admin123', 10);
+      await dbRun(
+        `INSERT INTO admin_users (id, username, password_hash) VALUES (?, ?, ?)`,
+        [1, 'admin', defaultPassword]
+      );
+      console.log('✅ Default admin user created');
+    } else {
+      console.log('✅ Admin user already exists');
+    }
 
     console.log('✅ Database tables initialized');
   } catch (err) {
-    console.error('❌ Error initializing tables:', err);
+    console.error('❌ Error initializing tables:', err.message);
   }
 }
 
@@ -191,6 +240,7 @@ app.get('/admin/auth-status', async (req, res) => {
         res.json({ authenticated: false });
       }
     } catch (err) {
+      console.error('Auth status error:', err);
       res.json({ authenticated: false });
     }
   } else {
@@ -212,6 +262,7 @@ app.post('/admin/login', async (req, res) => {
       res.status(401).json({ error: 'Invalid credentials' });
     }
   } catch (err) {
+    console.error('Login error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -225,15 +276,23 @@ app.post('/admin/logout', (req, res) => {
 
 app.get('/admin/stats', requireAuth, async (req, res) => {
   try {
-    const stats = await dbGet(`
-      SELECT 
-        (SELECT COUNT(*) FROM delegates) as total_delegates,
-        (SELECT COUNT(*) FROM delegates WHERE has_voted = 1) as voted_delegates,
-        (SELECT COUNT(*) FROM candidates) as total_candidates,
-        (SELECT COUNT(*) FROM votes) as total_votes
-    `);
+    // Get counts separately for better compatibility
+    const delegatesCount = await dbGet('SELECT COUNT(*) as count FROM delegates');
+    const votedCount = await dbGet('SELECT COUNT(*) as count FROM delegates WHERE has_voted = 1');
+    const candidatesCount = await dbGet('SELECT COUNT(*) as count FROM candidates');
+    const votesCount = await dbGet('SELECT COUNT(*) as count FROM votes');
+    
+    const stats = {
+      total_delegates: delegatesCount?.count || 0,
+      voted_delegates: votedCount?.count || 0,
+      total_candidates: candidatesCount?.count || 0,
+      total_votes: votesCount?.count || 0
+    };
+    
+    console.log('Stats:', stats);
     res.json(stats);
   } catch (err) {
+    console.error('Stats error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -243,8 +302,10 @@ app.get('/admin/stats', requireAuth, async (req, res) => {
 app.get('/admin/delegates', requireAuth, async (req, res) => {
   try {
     const rows = await dbAll('SELECT * FROM delegates ORDER BY id DESC');
+    console.log('Delegates loaded:', rows.length);
     res.json({ delegates: rows, total: rows.length });
   } catch (err) {
+    console.error('Delegates error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -255,13 +316,14 @@ app.post('/admin/delegates', requireAuth, async (req, res) => {
   
   try {
     const result = await dbRun(
-      'INSERT INTO delegates (name, gender, community, zone, phone, email, token, has_voted) VALUES (?, ?, ?, ?, ?, ?, ?, 0)',
-      [name, gender, community, zone, phone, email, token]
+      'INSERT INTO delegates (name, gender, community, zone, phone, email, token, has_voted) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, gender, community, zone, phone, email, token, 0]
     );
     
-    const delegate = await dbGet('SELECT * FROM delegates WHERE id = ?', [result.lastID]);
+    const delegate = await dbGet('SELECT * FROM delegates WHERE token = ?', [token]);
     res.json({ success: true, delegate });
   } catch (err) {
+    console.error('Add delegate error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -271,6 +333,7 @@ app.delete('/admin/delegates/:id', requireAuth, async (req, res) => {
     await dbRun('DELETE FROM delegates WHERE id = ?', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
+    console.error('Delete delegate error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -292,8 +355,8 @@ app.post('/admin/delegates/import', requireAuth, upload.single('file'), async (r
           if (row.name && row.zone) {
             const token = `INC-1-${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
             await dbRun(
-              'INSERT INTO delegates (name, gender, community, zone, phone, email, token, has_voted) VALUES (?, ?, ?, ?, ?, ?, ?, 0)',
-              [row.name, row.gender, row.community, row.zone, row.phone, row.email, token]
+              'INSERT INTO delegates (name, gender, community, zone, phone, email, token, has_voted) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+              [row.name, row.gender, row.community, row.zone, row.phone, row.email, token, 0]
             );
             count++;
           }
@@ -302,6 +365,7 @@ app.post('/admin/delegates/import', requireAuth, upload.single('file'), async (r
         fs.unlinkSync(req.file.path);
         res.json({ success: true, count });
       } catch (err) {
+        console.error('Import error:', err);
         res.status(500).json({ error: err.message });
       }
     }
@@ -321,8 +385,10 @@ app.get('/admin/candidates', requireAuth, async (req, res) => {
       JOIN positions p ON c.position_id = p.id
       ORDER BY p.display_order, c.display_order
     `);
+    console.log('Candidates loaded:', rows.length);
     res.json(rows);
   } catch (err) {
+    console.error('Candidates error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -332,6 +398,7 @@ app.get('/admin/positions', requireAuth, async (req, res) => {
     const rows = await dbAll('SELECT * FROM positions ORDER BY display_order');
     res.json(rows);
   } catch (err) {
+    console.error('Positions error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -354,6 +421,7 @@ app.post('/admin/candidates', requireAuth, upload.single('image'), async (req, r
     
     res.json({ success: true, id: result.lastID });
   } catch (err) {
+    console.error('Add candidate error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -371,6 +439,7 @@ app.delete('/admin/candidates/:id', requireAuth, async (req, res) => {
     await dbRun('DELETE FROM candidates WHERE id = ?', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
+    console.error('Delete candidate error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -405,6 +474,7 @@ app.put('/admin/candidates/:id', requireAuth, upload.single('image'), async (req
     
     res.json({ success: true });
   } catch (err) {
+    console.error('Update candidate error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -434,6 +504,7 @@ app.post('/admin/qr-codes/generate', requireAuth, async (req, res) => {
     
     res.json({ success: true, count });
   } catch (err) {
+    console.error('Generate QR error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -475,6 +546,7 @@ app.get('/admin/qr-codes/download-all', requireAuth, async (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
   } catch (err) {
+    console.error('Download QR error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -485,6 +557,7 @@ app.post('/admin/reset-votes', requireAuth, async (req, res) => {
     await dbRun('UPDATE delegates SET has_voted = 0');
     res.json({ success: true });
   } catch (err) {
+    console.error('Reset votes error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -494,36 +567,28 @@ app.post('/admin/reset-votes', requireAuth, async (req, res) => {
 // Get all positions with candidates
 app.get("/positions", async (req, res) => {
   try {
-    const rows = await dbAll(`
-      SELECT 
-        p.id as position_id,
-        p.zone,
-        p.title,
-        p.display_order,
-        json_group_array(
-          json_object(
-            'id', c.id,
-            'name', c.name,
-            'image_url', c.image_url,
-            'display_order', c.display_order
-          )
-        ) as candidates
-      FROM positions p
-      LEFT JOIN candidates c ON p.id = c.position_id
-      GROUP BY p.id
-      ORDER BY p.display_order
-    `);
+    // Get positions and candidates separately for better compatibility
+    const positions = await dbAll('SELECT * FROM positions ORDER BY display_order');
     
-    const positions = rows.map(row => ({
-      id: row.position_id,
-      zone: row.zone,
-      title: row.title,
-      display_order: row.display_order,
-      candidates: JSON.parse(row.candidates).filter(c => c.id !== null)
-    }));
+    const result = [];
+    for (const position of positions) {
+      const candidates = await dbAll(
+        'SELECT id, name, image_url, display_order FROM candidates WHERE position_id = ? ORDER BY display_order',
+        [position.id]
+      );
+      
+      result.push({
+        id: position.id,
+        zone: position.zone,
+        title: position.title,
+        display_order: position.display_order,
+        candidates: candidates
+      });
+    }
 
-    res.json(positions);
+    res.json(result);
   } catch (err) {
+    console.error('Positions error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -546,6 +611,7 @@ app.post("/verify-delegate", async (req, res) => {
       has_voted: !!row.has_voted,
     });
   } catch (err) {
+    console.error('Verify delegate error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -574,8 +640,8 @@ app.post("/submit-votes", async (req, res) => {
 
     // Mark delegate as voted
     await dbRun(
-      `UPDATE delegates SET has_voted = 1 WHERE id = ?`,
-      [delegate.id]
+      `UPDATE delegates SET has_voted = ? WHERE id = ?`,
+      [1, delegate.id]
     );
 
     // Emit socket event for live updates
@@ -589,6 +655,7 @@ app.post("/submit-votes", async (req, res) => {
       message: "All votes recorded successfully" 
     });
   } catch (err) {
+    console.error('Submit votes error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -596,43 +663,33 @@ app.post("/submit-votes", async (req, res) => {
 // Get results
 app.get("/results", async (req, res) => {
   try {
-    const rows = await dbAll(`
-      SELECT 
-        p.id as position_id,
-        p.title as position_title,
-        p.zone,
-        c.id as candidate_id,
-        c.name as candidate_name,
-        COUNT(v.id) as vote_count
-      FROM positions p
-      LEFT JOIN candidates c ON p.id = c.position_id
-      LEFT JOIN votes v ON c.id = v.candidate_id
-      GROUP BY p.id, c.id
-      ORDER BY p.display_order, c.display_order
-    `);
-
-    const results = {};
-    rows.forEach(row => {
-      if (!results[row.position_id]) {
-        results[row.position_id] = {
-          position_id: row.position_id,
-          position_title: row.position_title,
-          zone: row.zone,
-          candidates: []
-        };
-      }
+    const positions = await dbAll('SELECT * FROM positions ORDER BY display_order');
+    
+    const results = [];
+    for (const position of positions) {
+      const candidates = await dbAll(`
+        SELECT 
+          c.id as candidate_id,
+          c.name as candidate_name,
+          COUNT(v.id) as vote_count
+        FROM candidates c
+        LEFT JOIN votes v ON c.id = v.candidate_id
+        WHERE c.position_id = ?
+        GROUP BY c.id
+        ORDER BY c.display_order
+      `, [position.id]);
       
-      if (row.candidate_id) {
-        results[row.position_id].candidates.push({
-          candidate_id: row.candidate_id,
-          candidate_name: row.candidate_name,
-          vote_count: row.vote_count
-        });
-      }
-    });
+      results.push({
+        position_id: position.id,
+        position_title: position.title,
+        zone: position.zone,
+        candidates: candidates
+      });
+    }
 
-    res.json(Object.values(results));
+    res.json(results);
   } catch (err) {
+    console.error('Results error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -640,15 +697,17 @@ app.get("/results", async (req, res) => {
 // Get statistics
 app.get("/statistics", async (req, res) => {
   try {
-    const row = await dbGet(`
-      SELECT 
-        (SELECT COUNT(*) FROM delegates) as total_delegates,
-        (SELECT COUNT(*) FROM delegates WHERE has_voted = 1) as voted_delegates,
-        (SELECT COUNT(*) FROM votes) as total_votes
-    `);
+    const delegatesCount = await dbGet('SELECT COUNT(*) as count FROM delegates');
+    const votedCount = await dbGet('SELECT COUNT(*) as count FROM delegates WHERE has_voted = 1');
+    const votesCount = await dbGet('SELECT COUNT(*) as count FROM votes');
     
-    res.json(row);
+    res.json({
+      total_delegates: delegatesCount?.count || 0,
+      voted_delegates: votedCount?.count || 0,
+      total_votes: votesCount?.count || 0
+    });
   } catch (err) {
+    console.error('Statistics error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -671,5 +730,5 @@ server.listen(PORT, () => {
   console.log(`🌐 Server: http://localhost:${PORT}`);
   console.log(`🗳️  Admin Panel: http://localhost:${PORT}/admin`);
   console.log(`🔗 Frontend URL: ${FRONTEND_URL}`);
-  console.log(`💾 Database: ${SQLITE_CLOUD_URL ? 'SQLiteCloud' : 'Local SQLite'}\n`);
+  console.log(`💾 Database: ${isCloudDatabase ? 'SQLiteCloud' : 'Local SQLite'}\n`);
 });
