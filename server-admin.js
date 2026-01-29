@@ -7,7 +7,7 @@ const fs = require("fs");
 const cors = require("cors");
 const session = require("express-session");
 const { Server } = require("socket.io");
-const SQLiteCloud = require("@sqlitecloud/drivers"); // correct driver
+const SQLiteCloud = require("@sqlitecloud/drivers");
 const bcrypt = require("bcryptjs");
 
 const app = express();
@@ -16,10 +16,12 @@ const server = http.createServer(app);
 /* ===========================
    ENV
 =========================== */
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 const SESSION_SECRET = process.env.SESSION_SECRET || "dev-secret";
 const SQLITECLOUD_URL = process.env.SQLITECLOUD_URL || process.env.SQLITE_CLOUD_URL;
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3001";
+
+console.log("🧪 SQLITECLOUD_URL =", SQLITECLOUD_URL);
 
 /* ===========================
    DB
@@ -45,7 +47,11 @@ try {
    SOCKET.IO
 =========================== */
 const io = new Server(server, {
-  cors: { origin: FRONTEND_URL, methods: ["GET", "POST"] },
+  cors: {
+    origin: FRONTEND_URL,
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
 });
 
 io.on("connection", (socket) => {
@@ -63,22 +69,32 @@ const ADMIN_PATH = path.join(__dirname, "admin-panel");
 /* ===========================
    MIDDLEWARE
 =========================== */
+app.set("trust proxy", 1);
+
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true }));
-app.use(cors({ origin: FRONTEND_URL, credentials: true }));
+app.use(
+  cors({
+    origin: FRONTEND_URL,
+    credentials: true,
+  })
+);
 
 app.use(
   session({
+    name: "inc.sid",
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: process.env.NODE_ENV === "production" },
+    cookie: {
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      sameSite: "lax",
+    },
   })
 );
 
 app.use("/public", express.static(PUBLIC_PATH));
-app.use("/admin", express.static(ADMIN_PATH));
-if (fs.existsSync(BUILD_PATH)) app.use(express.static(BUILD_PATH));
 
 /* ===========================
    HELPERS
@@ -110,6 +126,29 @@ async function dbRun(sql, params = []) {
 }
 
 /* ===========================
+   DEBUG
+=========================== */
+app.get("/api/debug/dbinfo", async (req, res) => {
+  try {
+    const tables = await dbAll("SELECT name FROM sqlite_master WHERE type='table'");
+    const delegates = await dbGet("SELECT COUNT(*) as c FROM delegates");
+    const candidates = await dbGet("SELECT COUNT(*) as c FROM candidates");
+    const votes = await dbGet("SELECT COUNT(*) as c FROM votes");
+
+    res.json({
+      tables,
+      counts: {
+        delegates: delegates?.c || 0,
+        candidates: candidates?.c || 0,
+        votes: votes?.c || 0,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/* ===========================
    AUTH
 =========================== */
 app.post("/api/admin/login", async (req, res) => {
@@ -133,7 +172,7 @@ app.post("/api/admin/logout", requireAdmin, (req, res) => {
   req.session.destroy(() => res.json({ success: true }));
 });
 
-// Admin panel compatibility routes (used by admin-panel static UI)
+// Admin panel compatibility routes
 app.get("/admin/auth-status", (req, res) => {
   res.json({ authenticated: !!req.session.admin, username: req.session.admin?.username || null });
 });
@@ -159,6 +198,9 @@ app.post("/admin/logout", requireAdmin, (req, res) => {
   req.session.destroy(() => res.json({ success: true }));
 });
 
+/* ===========================
+   ADMIN API
+=========================== */
 app.get("/admin/stats", requireAdmin, async (req, res) => {
   try {
     const total_delegates = (await dbGet("SELECT COUNT(*) as c FROM delegates"))?.c || 0;
@@ -168,49 +210,21 @@ app.get("/admin/stats", requireAdmin, async (req, res) => {
     res.json({ total_delegates, voted_delegates, total_candidates, total_votes });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to fetch stats' });
+    res.status(500).json({ error: "Failed to fetch stats" });
   }
 });
 
-app.get('/admin/delegates', requireAdmin, async (req, res) => {
+app.get("/admin/delegates", requireAdmin, async (req, res) => {
   try {
-    const delegates = await dbAll('SELECT id, name, token, zone, has_voted FROM delegates ORDER BY name');
+    const delegates = await dbAll("SELECT id, name, token, zone, has_voted FROM delegates ORDER BY name");
     res.json({ total: delegates.length, delegates });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to fetch delegates' });
+    res.status(500).json({ error: "Failed to fetch delegates" });
   }
 });
 
-app.post('/admin/delegates', requireAdmin, async (req, res) => {
-  try {
-    const { name, gender, community, zone, phone, email } = req.body;
-    const token = (Math.random().toString(36).slice(2, 10)).toUpperCase();
-    const now = new Date().toISOString();
-    const result = await dbRun(
-      'INSERT INTO delegates (name, gender, community, zone, phone, email, token, has_voted, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)',
-      [name, gender || null, community || null, zone || null, phone || null, email || null, token, now]
-    );
-    const delegate = await dbGet('SELECT id, name, token, zone, has_voted FROM delegates WHERE id = ?', [result.lastID]);
-    res.json({ delegate });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to add delegate' });
-  }
-});
-
-app.delete('/admin/delegates/:id', requireAdmin, async (req, res) => {
-  try {
-    const id = req.params.id;
-    await dbRun('DELETE FROM delegates WHERE id = ?', [id]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to delete delegate' });
-  }
-});
-
-app.get('/admin/candidates', requireAdmin, async (req, res) => {
+app.get("/admin/candidates", requireAdmin, async (req, res) => {
   try {
     const rows = await dbAll(
       `SELECT c.id, c.name, c.position_id, c.image_url, c.community, c.gender, c.zone, p.title as position_title, p.zone as position_zone
@@ -221,33 +235,33 @@ app.get('/admin/candidates', requireAdmin, async (req, res) => {
     res.json(rows || []);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to fetch candidates' });
+    res.status(500).json({ error: "Failed to fetch candidates" });
   }
 });
 
-// Expose positions at /admin/positions for admin UI (wrap existing /api/positions)
-app.get('/admin/positions', requireAdmin, async (req, res) => {
+app.get("/admin/positions", requireAdmin, async (req, res) => {
   try {
-    const positions = await dbAll('SELECT * FROM positions ORDER BY display_order');
+    const positions = await dbAll("SELECT * FROM positions ORDER BY display_order");
     const result = [];
     for (const p of positions) {
-      const candidates = await dbAll('SELECT id, name, image_url FROM candidates WHERE position_id = ? ORDER BY display_order', [p.id]);
+      const candidates = await dbAll(
+        "SELECT id, name, image_url FROM candidates WHERE position_id = ? ORDER BY display_order",
+        [p.id]
+      );
       result.push({ ...p, candidates });
     }
     res.json(result);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to fetch positions' });
+    res.status(500).json({ error: "Failed to fetch positions" });
   }
 });
 
 /* ===========================
    API ROUTES
 =========================== */
-// Health
 app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 
-// Positions
 app.get("/api/positions", async (req, res) => {
   try {
     const positions = await dbAll("SELECT * FROM positions ORDER BY display_order");
@@ -266,7 +280,6 @@ app.get("/api/positions", async (req, res) => {
   }
 });
 
-// Vote
 app.post("/api/vote", async (req, res) => {
   const { voter_id, candidate_id } = req.body;
   try {
@@ -283,9 +296,16 @@ app.post("/api/vote", async (req, res) => {
 });
 
 /* ===========================
-   SERVE REACT
+   STATIC SERVING
 =========================== */
+
+// Admin panel static
+app.use("/admin", express.static(ADMIN_PATH));
+
+// React build
 if (fs.existsSync(BUILD_PATH)) {
+  app.use(express.static(BUILD_PATH));
+
   app.get("*", (req, res) => {
     res.sendFile(path.join(BUILD_PATH, "index.html"));
   });
@@ -298,7 +318,7 @@ if (fs.existsSync(BUILD_PATH)) {
 =========================== */
 server.listen(PORT, () => {
   console.log(`🚀 INC Voting System Running on port ${PORT}`);
-  console.log(`🌐 Admin Panel: http://localhost:${PORT}/admin`);
-  console.log(`💻 Frontend URL: ${FRONTEND_URL}`);
-  console.log(`💾 Database: ${isCloudDB ? "SQLiteCloud" : "Local SQLite"}`);
+  console.log(`🌐 Admin Panel: /admin`);
+  console.log(`💻 Frontend URL: /`);
+  console.log(`💾 Database: SQLiteCloud`);
 });
