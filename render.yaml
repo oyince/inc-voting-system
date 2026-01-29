@@ -3,7 +3,7 @@ services:
     name: inc-voting-system
     runtime: node
     plan: free
-    buildCommand: npm run install-all && npm run build-ui
+    buildCommand: npm ci && npm --prefix inc-voting-ui ci && npm --prefix inc-voting-ui run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
