@@ -8,7 +8,6 @@ const cors = require("cors");
 const session = require("express-session");
 const { Server } = require("socket.io");
 const SQLiteCloud = require("@sqlitecloud/drivers"); // correct driver
-const sqlite3 = require("sqlite3").verbose();
 const bcrypt = require("bcryptjs");
 
 const app = express();
@@ -25,30 +24,21 @@ const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3001";
 /* ===========================
    DB
 =========================== */
+if (!SQLITECLOUD_URL) {
+  console.error("❌ SQLITECLOUD_URL is not set");
+  process.exit(1);
+}
+
 let db;
 let isCloudDB = false;
 
-if (SQLITECLOUD_URL) {
-  try {
-    db = new SQLiteCloud.Database(SQLITECLOUD_URL);
-    isCloudDB = true;
-    console.log("✅ Connected to SQLiteCloud");
-  } catch (err) {
-    console.error("⚠️ SQLiteCloud connection failed, falling back to local DB:", err.message || err);
-  }
-}
-
-if (!isCloudDB) {
-  // Fall back to local SQLite file
-  const localDbPath = path.join(__dirname, "inc_votes.db");
-  try {
-    db = new sqlite3.Database(localDbPath);
-    isCloudDB = false;
-    console.log(`✅ Using local SQLite DB at ${localDbPath}`);
-  } catch (err) {
-    console.error("❌ Failed to open local SQLite DB:", err);
-    process.exit(1);
-  }
+try {
+  db = new SQLiteCloud.Database(SQLITECLOUD_URL);
+  isCloudDB = true;
+  console.log("✅ Connected to SQLiteCloud");
+} catch (err) {
+  console.error("❌ SQLiteCloud connection failed:", err);
+  process.exit(1);
 }
 
 /* ===========================
@@ -100,50 +90,23 @@ function requireAdmin(req, res, next) {
 
 // Normalize SQLiteCloud result
 async function dbAll(sql, params = []) {
-  if (isCloudDB) {
-    const res = await db.sql(sql, ...params);
-    if (!res || !res.columns || !res.data) return [];
-    return res.data.map((row) => {
-      const obj = {};
-      res.columns.forEach((col, i) => (obj[col] = row[i]));
-      return obj;
-    });
-  } else {
-    return new Promise((resolve, reject) => {
-      db.all(sql, params, (err, rows) => {
-        if (err) return reject(err);
-        resolve(rows || []);
-      });
-    });
-  }
+  const res = await db.sql(sql, ...params);
+  if (!res || !res.columns || !res.data) return [];
+  return res.data.map((row) => {
+    const obj = {};
+    res.columns.forEach((col, i) => (obj[col] = row[i]));
+    return obj;
+  });
 }
 
 async function dbGet(sql, params = []) {
-  if (isCloudDB) {
-    const all = await dbAll(sql, params);
-    return all[0] || null;
-  } else {
-    return new Promise((resolve, reject) => {
-      db.get(sql, params, (err, row) => {
-        if (err) return reject(err);
-        resolve(row || null);
-      });
-    });
-  }
+  const all = await dbAll(sql, params);
+  return all[0] || null;
 }
 
 async function dbRun(sql, params = []) {
-  if (isCloudDB) {
-    const result = await db.sql(sql, ...params);
-    return { lastID: result.lastRowid || 0, changes: result.rowsChanged || 0 };
-  } else {
-    return new Promise((resolve, reject) => {
-      db.run(sql, params, function (err) {
-        if (err) return reject(err);
-        resolve({ lastID: this.lastID || 0, changes: this.changes || 0 });
-      });
-    });
-  }
+  const result = await db.sql(sql, ...params);
+  return { lastID: result.lastRowid || 0, changes: result.rowsChanged || 0 };
 }
 
 /* ===========================
