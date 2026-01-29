@@ -6,6 +6,7 @@
   "scripts": {
     "install-all": "npm install && cd inc-voting-ui && npm install",
     "build-ui": "cd inc-voting-ui && npm run build",
+    "build": "npm run install-all && npm run build-ui",
     "start": "node server-admin.js"
   },
   "dependencies": {
