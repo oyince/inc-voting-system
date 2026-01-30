@@ -15,7 +15,7 @@ const server = http.createServer(app);
 const PORT = process.env.PORT || 10000;
 const SESSION_SECRET = process.env.SESSION_SECRET || "dev-secret";
 const SQLITECLOUD_URL = process.env.SQLITECLOUD_URL || process.env.SQLITE_CLOUD_URL;
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3001";
+const FRONTEND_URL = process.env.FRONTEND_URL;
 
 // Database Connection
 if (!SQLITECLOUD_URL) {
