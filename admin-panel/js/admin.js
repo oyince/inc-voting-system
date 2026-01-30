@@ -1,7 +1,7 @@
 // admin-panel/js/admin.js
 // Admin panel functionality for SQLite
 
-const API_BASE = window.location.origin;
+const API_BASE = "https://inc-voting-system.onrender.com";
 
 // Check authentication on load
 async function checkAuth() {
