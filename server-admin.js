@@ -280,6 +280,85 @@ app.get("/api/positions", async (req, res) => {
   }
 });
 
+/* ===========================
+   VERIFY DELEGATE ENDPOINT
+=========================== */
+app.post("/verify-delegate", async (req, res) => {
+  const { token } = req.body;
+  
+  if (!token) {
+    return res.status(400).json({ error: "Token is required" });
+  }
+
+  try {
+    const delegate = await dbGet("SELECT id, name, token, zone, has_voted FROM delegates WHERE token = ?", [token]);
+    
+    if (!delegate) {
+      return res.status(404).json({ error: "Invalid token" });
+    }
+
+    if (delegate.has_voted) {
+      return res.status(403).json({ error: "This delegate has already voted" });
+    }
+
+    res.json({
+      success: true,
+      delegate_id: delegate.id,
+      name: delegate.name,
+      zone: delegate.zone,
+      token: delegate.token
+    });
+  } catch (err) {
+    console.error("❌ Verify delegate error:", err);
+    res.status(500).json({ error: "Verification failed" });
+  }
+});
+
+/* ===========================
+   SUBMIT VOTES ENDPOINT
+=========================== */
+app.post("/submit-votes", async (req, res) => {
+  const { delegate_id, votes } = req.body;
+  
+  if (!delegate_id || !votes || typeof votes !== "object") {
+    return res.status(400).json({ error: "Invalid request data" });
+  }
+
+  try {
+    // Check if delegate exists and hasn't voted yet
+    const delegate = await dbGet("SELECT id, has_voted FROM delegates WHERE id = ?", [delegate_id]);
+    
+    if (!delegate) {
+      return res.status(404).json({ error: "Delegate not found" });
+    }
+
+    if (delegate.has_voted) {
+      return res.status(403).json({ error: "Delegate has already voted" });
+    }
+
+    // Insert each vote
+    for (const [positionId, candidateId] of Object.entries(votes)) {
+      if (candidateId && positionId) {
+        await dbRun(
+          "INSERT INTO votes (delegate_id, position_id, candidate_id) VALUES (?, ?, ?)",
+          [delegate_id, parseInt(positionId), parseInt(candidateId)]
+        );
+      }
+    }
+
+    // Mark delegate as voted
+    await dbRun("UPDATE delegates SET has_voted = 1 WHERE id = ?", [delegate_id]);
+
+    // Emit vote update event
+    io.emit("vote_update");
+
+    res.json({ success: true, message: "Votes submitted successfully" });
+  } catch (err) {
+    console.error("❌ Submit votes error:", err);
+    res.status(500).json({ error: "Failed to submit votes" });
+  }
+});
+
 app.post("/api/vote", async (req, res) => {
   const { voter_id, candidate_id } = req.body;
   try {
