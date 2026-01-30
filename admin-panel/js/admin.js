@@ -1,7 +1,7 @@
 // admin-panel/js/admin.js
 // Admin panel functionality for SQLite
 
-const API_BASE = "https://inc-voting-system.onrender.com";
+const API_BASE = "";
 
 // Check authentication on load
 async function checkAuth() {
@@ -23,6 +23,34 @@ async function checkAuth() {
 }
 
 // Login
+app.post("/admin/login", async (req, res) => {
+  console.log("LOGIN BODY:", req.body);
+
+  const { username, password } = req.body;
+  const user = await dbGet(
+    "SELECT * FROM admin_users WHERE username = ?",
+    [username]
+  );
+
+  console.log("DB USER:", user);
+
+  if (!user) {
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+
+  console.log(
+    "PASSWORD MATCH:",
+    bcrypt.compareSync(password, user.password_hash)
+  );
+
+  if (!bcrypt.compareSync(password, user.password_hash)) {
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+
+  req.session.admin = { id: user.id, username: user.username };
+  res.json({ success: true });
+});
+
 document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   
