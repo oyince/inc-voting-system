@@ -3,13 +3,11 @@
 
 const API_BASE = "";
 
-// Check authentication on load
 async function checkAuth() {
   try {
     const response = await fetch(`${API_BASE}/admin/auth-status`, {
       credentials: "include",
     });
-
     const data = await response.json();
 
     if (data.authenticated) {
@@ -23,29 +21,41 @@ async function checkAuth() {
   }
 }
 
+// Logic for the Login Form
 document.getElementById("loginForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
-
   const username = document.getElementById("username").value;
   const password = document.getElementById("password").value;
+  const errorDiv = document.getElementById('loginError');
 
-  const res = await fetch(`${API_BASE}/admin/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ username, password }),
-  });
+  try {
+    const res = await fetch(`${API_BASE}/admin/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ username, password }),
+    });
 
-  const data = await res.json();
+    const data = await res.json();
 
-  if (res.ok) {
-    location.reload();
-  } else {
-    alert(data.error || "Login failed");
+    if (res.ok) {
+      location.reload();
+    } else {
+      if(errorDiv) {
+        errorDiv.textContent = data.error || "Login failed";
+        errorDiv.classList.remove("hidden");
+      } else {
+        alert(data.error || "Login failed");
+      }
+    }
+  } catch (err) {
+    console.error("Login error:", err);
   }
 });
 
+// Run on load
 checkAuth();
+
 
 // Login
 app.post("/admin/login", async (req, res) => {
