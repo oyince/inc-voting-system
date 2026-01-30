@@ -1,5 +1,6 @@
-// server-admin.js
+// server-admin-sqlitecloud.js
 // Backend server for INC Voting System with SQLiteCloud Database
+// Compatible with your existing admin-panel directory structure
 
 require('dotenv').config({ path: '.env' });
 const express = require('express');
@@ -56,15 +57,50 @@ app.use(session({
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    maxAge: 24 * 60 * 60 * 1000,
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
   }
 }));
 
-// Serve static files
-app.use(express.static('public'));
-app.use('/candidates', express.static('candidates'));
-app.use('/qr-codes', express.static('qr-codes'));
+// ============================================
+// SERVE STATIC FILES - YOUR DIRECTORY STRUCTURE
+// ============================================
+
+// Serve admin-panel directory (contains css, js, index.html)
+app.use('/admin-panel', express.static(path.join(__dirname, 'admin-panel')));
+
+// Serve other directories if they exist
+app.use('/documentation', express.static(path.join(__dirname, 'documentation')));
+app.use('/inc-voting-ui', express.static(path.join(__dirname, 'inc-voting-ui')));
+app.use('/candidates', express.static(path.join(__dirname, 'candidates')));
+app.use('/qr-codes', express.static(path.join(__dirname, 'qr-codes')));
+
+// ============================================
+// ROUTES TO SERVE HTML PAGES
+// ============================================
+
+// Root path - redirect to admin
+app.get('/', (req, res) => {
+  res.redirect('/admin/');
+});
+
+// Serve admin panel at /admin and /admin/
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'admin-panel', 'index.html'));
+});
+
+app.get('/admin/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'admin-panel', 'index.html'));
+});
+
+// Also allow direct access via /admin-panel path
+app.get('/admin-panel', (req, res) => {
+  res.sendFile(path.join(__dirname, 'admin-panel', 'index.html'));
+});
+
+app.get('/admin-panel/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'admin-panel', 'index.html'));
+});
 
 // File upload configuration
 const storage = multer.diskStorage({
@@ -83,7 +119,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowedTypes = /jpeg|jpg|png|gif|webp/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
@@ -116,7 +152,6 @@ app.get('/health', (req, res) => {
 // AUTHENTICATION ROUTES
 // ============================================
 
-// Check auth status
 app.get('/admin/auth-status', (req, res) => {
   if (req.session.admin) {
     res.json({
@@ -128,7 +163,6 @@ app.get('/admin/auth-status', (req, res) => {
   }
 });
 
-// Login
 app.post('/admin/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -170,7 +204,6 @@ app.post('/admin/login', async (req, res) => {
   }
 });
 
-// Logout
 app.post('/admin/logout', (req, res) => {
   req.session.destroy((err) => {
     if (err) {
@@ -205,7 +238,6 @@ app.get('/admin/stats', requireAuth, async (req, res) => {
 // DELEGATES ROUTES
 // ============================================
 
-// Get all delegates
 app.get('/admin/delegates', requireAuth, async (req, res) => {
   try {
     const delegates = await dbQuery(`
@@ -224,7 +256,6 @@ app.get('/admin/delegates', requireAuth, async (req, res) => {
   }
 });
 
-// Get single delegate
 app.get('/admin/delegates/:id', requireAuth, async (req, res) => {
   try {
     const result = await dbQuery(
@@ -245,7 +276,6 @@ app.get('/admin/delegates/:id', requireAuth, async (req, res) => {
   }
 });
 
-// Add new delegate
 app.post('/admin/delegates', requireAuth, async (req, res) => {
   try {
     const { name, gender, community, zone, phone, email } = req.body;
@@ -254,7 +284,6 @@ app.post('/admin/delegates', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Name and zone are required' });
     }
 
-    // Generate unique token
     const token = `INC-1-${Date.now().toString(16).toUpperCase().slice(-12)}`;
 
     await dbQuery(`
@@ -273,7 +302,6 @@ app.post('/admin/delegates', requireAuth, async (req, res) => {
   }
 });
 
-// Update delegate
 app.put('/admin/delegates/:id', requireAuth, async (req, res) => {
   try {
     const { name, gender, community, zone, phone, email } = req.body;
@@ -292,13 +320,9 @@ app.put('/admin/delegates/:id', requireAuth, async (req, res) => {
   }
 });
 
-// Delete delegate
 app.delete('/admin/delegates/:id', requireAuth, async (req, res) => {
   try {
-    // Delete associated votes first
     await dbQuery('DELETE FROM votes WHERE delegate_id = ?', [req.params.id]);
-    
-    // Delete delegate
     await dbQuery('DELETE FROM delegates WHERE id = ?', [req.params.id]);
 
     res.json({ success: true });
@@ -309,7 +333,6 @@ app.delete('/admin/delegates/:id', requireAuth, async (req, res) => {
   }
 });
 
-// Get delegate QR code
 app.get('/admin/delegates/:id/qr', requireAuth, async (req, res) => {
   try {
     const result = await dbQuery(
@@ -323,7 +346,6 @@ app.get('/admin/delegates/:id/qr', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Delegate not found' });
     }
 
-    // Generate QR code
     const qrDir = './qr-codes';
     if (!fs.existsSync(qrDir)) {
       fs.mkdirSync(qrDir, { recursive: true });
@@ -331,7 +353,6 @@ app.get('/admin/delegates/:id/qr', requireAuth, async (req, res) => {
 
     const qrPath = path.join(qrDir, `${delegate.token}.png`);
     
-    // Check if QR code already exists
     if (!fs.existsSync(qrPath)) {
       const votingUrl = `${process.env.FRONTEND_URL}/vote?token=${delegate.token}`;
       await QRCode.toFile(qrPath, votingUrl, {
@@ -352,7 +373,6 @@ app.get('/admin/delegates/:id/qr', requireAuth, async (req, res) => {
   }
 });
 
-// Import delegates from CSV
 app.post('/admin/delegates/import', requireAuth, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -386,14 +406,12 @@ app.post('/admin/delegates/import', requireAuth, upload.single('file'), async (r
             ]);
 
             imported++;
-            // Small delay to ensure unique timestamps
             await new Promise(resolve => setTimeout(resolve, 10));
           } catch (err) {
             console.error('Row import error:', err);
           }
         }
 
-        // Delete uploaded file
         fs.unlinkSync(req.file.path);
 
         res.json({
@@ -412,7 +430,6 @@ app.post('/admin/delegates/import', requireAuth, upload.single('file'), async (r
 // CANDIDATES ROUTES
 // ============================================
 
-// Get all candidates
 app.get('/admin/candidates', requireAuth, async (req, res) => {
   try {
     const candidates = await dbQuery(`
@@ -437,7 +454,6 @@ app.get('/admin/candidates', requireAuth, async (req, res) => {
   }
 });
 
-// Get single candidate
 app.get('/admin/candidates/:id', requireAuth, async (req, res) => {
   try {
     const result = await dbQuery(
@@ -458,7 +474,6 @@ app.get('/admin/candidates/:id', requireAuth, async (req, res) => {
   }
 });
 
-// Add new candidate
 app.post('/admin/candidates', requireAuth, upload.single('image'), async (req, res) => {
   try {
     const { name, position_id, gender, community, zone } = req.body;
@@ -467,7 +482,6 @@ app.post('/admin/candidates', requireAuth, upload.single('image'), async (req, r
       return res.status(400).json({ error: 'Name and position are required' });
     }
 
-    // Get max display_order for this position
     const maxOrderResult = await dbQuery(
       'SELECT MAX(display_order) as max_order FROM candidates WHERE position_id = ?',
       [position_id]
@@ -490,7 +504,6 @@ app.post('/admin/candidates', requireAuth, upload.single('image'), async (req, r
   }
 });
 
-// Update candidate
 app.put('/admin/candidates/:id', requireAuth, upload.single('image'), async (req, res) => {
   try {
     const { position_id, gender, community, zone } = req.body;
@@ -501,7 +514,6 @@ app.put('/admin/candidates/:id', requireAuth, upload.single('image'), async (req
     `;
     let params = [position_id, gender || '', community || '', zone || ''];
 
-    // If new image uploaded, update image_url
     if (req.file) {
       query += `, image_url = ?`;
       params.push(`/candidates/${req.file.filename}`);
@@ -520,13 +532,9 @@ app.put('/admin/candidates/:id', requireAuth, upload.single('image'), async (req
   }
 });
 
-// Delete candidate
 app.delete('/admin/candidates/:id', requireAuth, async (req, res) => {
   try {
-    // Delete associated votes first
     await dbQuery('DELETE FROM votes WHERE candidate_id = ?', [req.params.id]);
-    
-    // Delete candidate
     await dbQuery('DELETE FROM candidates WHERE id = ?', [req.params.id]);
 
     res.json({ success: true });
@@ -663,37 +671,32 @@ app.post('/admin/reset-votes', requireAuth, async (req, res) => {
 // ============================================
 
 const startServer = async () => {
-  // Connect to database first
   await connectDatabase();
 
   app.listen(PORT, () => {
     console.log(`
 ╔═══════════════════════════════════════════════════════╗
-║  🗳️  INC Voting System - Admin Server Running       ║
+║  🗳️  INC Voting System - Server Running              ║
 ╠═══════════════════════════════════════════════════════╣
 ║  Port: ${PORT.toString().padEnd(44)} ║
-║  Environment: ${(process.env.NODE_ENV || 'development').padEnd(38)} ║
-║  Database: SQLiteCloud (Remote)                      ║
+║  Database: SQLiteCloud                               ║
 ╠═══════════════════════════════════════════════════════╣
-║  📝 Default Admin Credentials:                       ║
-║     Username: admin                                  ║
-║     Password: admin123                               ║
+║  Admin Login: admin / admin123                       ║
 ╠═══════════════════════════════════════════════════════╣
-║  🌐 Endpoints:                                        ║
-║     Frontend: ${process.env.FRONTEND_URL.padEnd(36)} ║
-║     Health: http://localhost:${PORT}/health            ║
+║  URLs:                                               ║
+║    /admin/        → Admin panel                      ║
+║    /admin-panel/  → Admin panel (alt)                ║
+║    /health        → Health check                     ║
 ╚═══════════════════════════════════════════════════════╝
     `);
   });
 };
 
-// Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n👋 Shutting down server...');
   process.exit(0);
 });
 
-// Start the server
 startServer().catch(err => {
   console.error('Failed to start server:', err);
   process.exit(1);
