@@ -203,21 +203,36 @@ app.get('/admin/auth-status', (req, res) => {
 app.post('/admin/login', async (req, res) => {
   try {
     const { username, password } = req.body;
+    console.log(`Attempting login for: ${username}`);
+
     const result = await db.sql('SELECT * FROM admin_users WHERE username = ? LIMIT 1', [username]);
     
-    // SQLiteCloud result parsing
+    // 🔍 DEBUG: This will show in your Render logs exactly what the DB returns
+    console.log('DB Result:', JSON.stringify(result));
+
+    // 🚀 THE FIX: SQLiteCloud data is usually in result.data or result
     const user = (result && result.data && result.data.length > 0) ? result.data[0] : 
                  (Array.isArray(result) && result.length > 0) ? result[0] : null;
 
-    if (user && user.password_hash === password) { // Simple string comparison
+    if (!user) {
+      console.log("User not found in result set");
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Since you removed bcrypt, compare as plain text strings
+    // Ensure the DB column name is exactly 'password_hash'
+    if (user.password_hash === password) {
       req.session.authenticated = true;
       req.session.username = user.username;
+      console.log("Login Successful");
       return res.json({ success: true });
+    } else {
+      console.log(`Password mismatch. DB has: ${user.password_hash}, Sent: ${password}`);
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
-    
-    res.status(401).json({ error: 'Invalid credentials' });
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    console.error('Login Error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
