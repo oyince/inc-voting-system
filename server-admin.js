@@ -757,36 +757,35 @@ app.post('/admin/reset-votes', requireAuth, async (req, res) => {
 
 app.post('/verify-delegate', async (req, res) => {
   try {
-    const { token } = req.body;
-    console.log('Verifying delegate with Token:', token);
+    console.log('RAW BODY:', req.body);
+
+    const token = req.body.token?.trim();
+    console.log('Verifying token:', token, 'length:', token?.length);
 
     if (!token) {
       return res.status(400).json({ error: 'Delegate token is required' });
     }
 
-    // UPDATED: Querying the 'token' column instead of 'id'
-    //const result = await db.sql('SELECT * FROM delegates WHERE token = ?', [token]);
-    //const delegate = Array.isArray(result) ? result[0] : result;
     const result = await dbQuery(
       'SELECT * FROM delegates WHERE token = ?',
       [token]
     );
 
+    console.log('Rows returned:', result.rows?.length);
+
     const delegate = result.rows?.[0] ?? null;
-    console.log('Token length:', token.length);
 
     if (!delegate) {
-      console.log('No delegate found for token:', token);
       return res.status(404).json({ error: 'Invalid Delegate ID. Please try again.' });
     }
 
-    console.log('Delegate found:', delegate.name);
     res.json(delegate);
   } catch (error) {
     console.error('Verification error:', error);
-    res.status(500).json({ error: 'Server error: ' + error.message });
+    res.status(500).json({ error: 'Server error' });
   }
 });
+
 
 // ============================================
 // REACT APP CATCH-ALL (must be last)
