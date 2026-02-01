@@ -2,7 +2,7 @@
 // Admin panel functionality for SQLiteCloud connection
 // Location: INC-VOTING-SYSTEM/admin-panel/js/admin.js
 
-const API_BASE = "";
+const API_URL = "";
 
 // Helper function to handle API errors
 function handleApiError(error, defaultMessage) {

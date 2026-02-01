@@ -755,26 +755,32 @@ app.post('/admin/reset-votes', requireAuth, async (req, res) => {
   }
 });
 
-// Add this to server-admin.js
+// --- ADD THIS ROUTE ABOVE YOUR app.get('*', ...) BLOCK ---
 app.post('/verify-delegate', async (req, res) => {
   try {
     const { token } = req.body;
-    console.log('Verifying delegate with token:', token);
+    console.log('Verifying delegate with Token:', token);
 
-    // Look for the delegate by their unique ID/Token
-    const result = await dbQuery('SELECT * FROM delegates WHERE id = ?', [token]);
+    if (!token) {
+      return res.status(400).json({ error: 'Delegate token is required' });
+    }
+
+    // UPDATED: Querying the 'token' column instead of 'id'
+    const result = await db.sql('SELECT * FROM delegates WHERE token = ?', [token]);
     
-    // Handle SQLiteCloud rowset structure
+    // SQLiteCloud driver returns a rowset; we need the first row
     const delegate = Array.isArray(result) ? result[0] : result;
 
     if (!delegate) {
+      console.log('No delegate found for token:', token);
       return res.status(404).json({ error: 'Invalid Delegate ID. Please try again.' });
     }
 
+    console.log('Delegate found:', delegate.name);
     res.json(delegate);
   } catch (error) {
     console.error('Verification error:', error);
-    res.status(500).json({ error: 'Database error during verification' });
+    res.status(500).json({ error: 'Server error: ' + error.message });
   }
 });
 
