@@ -203,39 +203,21 @@ app.get('/admin/auth-status', (req, res) => {
 app.post('/admin/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    console.log(`Admin login attempt for: ${username}`);
-
-    // Query the admin_users table
     const result = await db.sql('SELECT * FROM admin_users WHERE username = ? LIMIT 1', [username]);
     
-    // 🔥 SQLiteCloud FIX: Check for data in .data property or standard array
-    let user = null;
-    if (result && result.data && result.data.length > 0) {
-      user = result.data[0];
-    } else if (Array.isArray(result) && result.length > 0) {
-      user = result[0];
-    }
+    // SQLiteCloud result parsing
+    const user = (result && result.data && result.data.length > 0) ? result.data[0] : 
+                 (Array.isArray(result) && result.length > 0) ? result[0] : null;
 
-    if (!user) {
-      console.log(`User ${username} not found in DB results.`);
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    // Compare with password_hash column using bcrypt
-    const isMatch = await bcrypt.compare(password, user.password_hash);
-
-    if (isMatch) {
+    if (user && user.password_hash === password) { // Simple string comparison
       req.session.authenticated = true;
       req.session.username = user.username;
-      console.log('Login successful');
-      res.json({ success: true });
-    } else {
-      console.log('Password mismatch');
-      res.status(401).json({ error: 'Invalid credentials' });
+      return res.json({ success: true });
     }
+    
+    res.status(401).json({ error: 'Invalid credentials' });
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
