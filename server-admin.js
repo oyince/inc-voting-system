@@ -205,33 +205,37 @@ app.post('/admin/login', async (req, res) => {
     const { username, password } = req.body;
     console.log(`Admin login attempt for: ${username}`);
 
-    // 1. Query the admin_users table
+    // Query the admin_users table
     const result = await db.sql('SELECT * FROM admin_users WHERE username = ? LIMIT 1', [username]);
     
-    const user = (result && result.data && result.data.length > 0) ? result.data[0] : 
-    (Array.isArray(result) && result.length > 0) ? result[0] : null;
+    // 🔥 SQLiteCloud FIX: Check for data in .data property or standard array
+    let user = null;
+    if (result && result.data && result.data.length > 0) {
+      user = result.data[0];
+    } else if (Array.isArray(result) && result.length > 0) {
+      user = result[0];
+    }
 
     if (!user) {
-      console.log(`User ${username} NOT FOUND in database query result.`);
+      console.log(`User ${username} not found in DB results.`);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // 2. Compare the provided password with the password_hash in DB
-    // IMPORTANT: user.password_hash matches your column name
+    // Compare with password_hash column using bcrypt
     const isMatch = await bcrypt.compare(password, user.password_hash);
 
     if (isMatch) {
-        req.session.authenticated = true;
-        req.session.username = user.username;
-        console.log('Login successful for:', user.username);
-        res.json({ success: true });   
+      req.session.authenticated = true;
+      req.session.username = user.username;
+      console.log('Login successful');
+      res.json({ success: true });
     } else {
-      console.log('Password does not match');
+      console.log('Password mismatch');
       res.status(401).json({ error: 'Invalid credentials' });
     }
   } catch (error) {
-    console.error('Login Error:', error);
-    res.status(500).json({ error: 'Internal server error during login' });
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
