@@ -96,8 +96,7 @@ app.use(session({
 // Serve admin-panel directory (contains css, js, index.html)
 app.use('/admin-panel', express.static(path.join(__dirname, 'admin-panel')));
 
-// Serve the built React voting UI
-app.use(express.static(path.join(__dirname, 'inc-voting-ui', 'build')));
+// NOTE: React static files served AFTER API routes (see bottom of file)
 
 // Serve other directories if they exist
 app.use('/documentation', express.static(path.join(__dirname, 'documentation')));
@@ -790,14 +789,125 @@ app.post('/verify-delegate', async (req, res) => {
   }
 });
 
+// ============================================
+// PUBLIC VOTING ENDPOINTS
+// ============================================
 
+// Get all positions with candidates for voting
+app.get('/positions', async (req, res) => {
+  try {
+    console.log('Fetching positions with candidates for voting...');
+    
+    const positions = await dbQuery(`
+      SELECT * FROM positions ORDER BY display_order ASC
+    `);
+    
+    let positionsArray = Array.isArray(positions) ? positions : [positions];
+    
+    // For each position, get its candidates
+    const positionsWithCandidates = await Promise.all(
+      positionsArray.map(async (position) => {
+        const candidates = await dbQuery(`
+          SELECT id, name, image_url, gender, community, zone, display_order
+          FROM candidates 
+          WHERE position_id = ?
+          ORDER BY display_order ASC
+        `, [position.id]);
+        
+        const candidatesArray = Array.isArray(candidates) ? candidates : (candidates ? [candidates] : []);
+        
+        return {
+          ...position,
+          candidates: candidatesArray
+        };
+      })
+    );
+    
+    console.log('Positions with candidates:', positionsWithCandidates.length);
+    res.json(positionsWithCandidates);
+  } catch (error) {
+    console.error('Error fetching positions:', error);
+    res.status(500).json({ error: 'Failed to fetch positions: ' + error.message });
+  }
+});
+
+// Submit votes
+app.post('/submit-votes', async (req, res) => {
+  try {
+    const { token, votes } = req.body;
+    console.log('Submitting votes for token:', token);
+    console.log('Votes:', votes);
+
+    if (!token) {
+      return res.status(400).json({ error: 'Delegate token is required' });
+    }
+
+    if (!votes || Object.keys(votes).length === 0) {
+      return res.status(400).json({ error: 'No votes provided' });
+    }
+
+    // Verify delegate exists and hasn't voted
+    const delegateResult = await dbQuery(
+      'SELECT * FROM delegates WHERE token = ?',
+      [token]
+    );
+
+    const delegate = Array.isArray(delegateResult) ? delegateResult[0] : delegateResult;
+
+    if (!delegate) {
+      return res.status(404).json({ error: 'Invalid delegate token' });
+    }
+
+    if (delegate.has_voted) {
+      return res.status(400).json({ error: 'This delegate has already voted' });
+    }
+
+    // Insert all votes
+    for (const [positionId, candidateId] of Object.entries(votes)) {
+      await dbQuery(`
+        INSERT INTO votes (delegate_id, position_id, candidate_id, created_at)
+        VALUES (?, ?, ?, datetime('now'))
+      `, [delegate.id, positionId, candidateId]);
+    }
+
+    // Mark delegate as voted
+    await dbQuery(
+      'UPDATE delegates SET has_voted = 1 WHERE id = ?',
+      [delegate.id]
+    );
+
+    console.log(`✅ Votes submitted for delegate ${delegate.name}`);
+
+    // Emit Socket.IO event for real-time updates
+    io.emit('new_votes', {
+      delegate_id: delegate.id,
+      delegate_name: delegate.name,
+      votes_count: Object.keys(votes).length
+    });
+
+    res.json({ 
+      success: true,
+      message: 'Votes submitted successfully',
+      votes_count: Object.keys(votes).length
+    });
+
+  } catch (error) {
+    console.error('Submit votes error:', error);
+    res.status(500).json({ error: 'Failed to submit votes: ' + error.message });
+  }
+});
+
+// ============================================
+// SERVE REACT BUILD (must be after API routes, before catch-all)
+// ============================================
+app.use(express.static(path.join(__dirname, 'inc-voting-ui', 'build')));
 
 // ============================================
 // REACT APP CATCH-ALL (must be last)
 // ============================================
 app.get('*', (req, res) => {
   // Only serve the React index.html if it is NOT an API route
-  const apiPaths = ['/admin', '/results', '/statistics', '/health', '/verify-delegate'];
+  const apiPaths = ['/admin', '/results', '/statistics', '/health', '/verify-delegate', '/positions', '/submit-votes'];
   const isApi = apiPaths.some(path => req.path.startsWith(path));
 
   if (isApi) {
