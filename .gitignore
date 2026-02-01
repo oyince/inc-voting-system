@@ -6,6 +6,8 @@ inc-voting-ui/node_modules/
 .env.local
 .env.development
 .env.production
+.env.example
+.env.frontend.development
 inc-voting-ui/.env
 inc-voting-ui/.env.local
 inc-voting-ui/.env.development

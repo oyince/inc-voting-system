@@ -7,7 +7,7 @@ import QrScanner from "./QrScanner";
 import cameraManager from "./CameraManager";
 
 // Use environment variable for API URL
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:3000";
+const API_URL = process.env.REACT_APP_API_URL;
 
 function VerifyPage() {
   const [token, setToken] = useState("");

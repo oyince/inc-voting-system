@@ -719,11 +719,13 @@ app.get('/statistics', async (req, res) => {
     const delegatesCount = await dbQuery('SELECT COUNT(*) as count FROM delegates');
     const votedCount = await dbQuery('SELECT COUNT(*) as count FROM delegates WHERE has_voted = 1');
     const votesCount = await dbQuery('SELECT COUNT(*) as count FROM votes');
-    
+    const candidatesCount = await dbQuery('SELECT COUNT(*) as count FROM candidates');    
+   
     const stats = {
       total_delegates: (Array.isArray(delegatesCount) ? delegatesCount[0] : delegatesCount).count || 0,
       voted_delegates: (Array.isArray(votedCount) ? votedCount[0] : votedCount).count || 0,
-      total_votes: (Array.isArray(votesCount) ? votesCount[0] : votesCount).count || 0
+      total_votes: (Array.isArray(votesCount) ? votesCount[0] : votesCount).count || 0,
+      total_candidates: (Array.isArray(candidatesCount) ? candidatesCount[0] : candidatesCount).count || 0
     };
     
     console.log('Statistics:', stats);
@@ -755,12 +757,17 @@ app.post('/admin/reset-votes', requireAuth, async (req, res) => {
 // REACT APP CATCH-ALL (must be last)
 // ============================================
 app.get('*', (req, res) => {
-  // Don't catch API routes
-  if (req.path.startsWith('/admin') || req.path.startsWith('/results') || req.path.startsWith('/statistics')) {
-    return res.status(404).json({ error: 'Not found' });
+  // Only serve the React index.html if it is NOT an API route
+  const apiPaths = ['/admin', '/results', '/statistics', '/health'];
+  const isApi = apiPaths.some(path => req.path.startsWith(path));
+
+  if (isApi) {
+    // If it's an API path but reached here, it means the specific 
+    // route handler above didn't catch it (e.g., wrong method or typo)
+    return res.status(404).json({ error: 'API route not found' });
   }
   
-  // Serve React app for all other routes
+  // Serve React app for everything else
   res.sendFile(path.join(__dirname, 'inc-voting-ui', 'build', 'index.html'));
 });
 
