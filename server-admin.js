@@ -109,19 +109,13 @@ app.use('/qr-codes', express.static(path.join(__dirname, 'qr-codes')));
 
 // Root path - redirect to admin
 app.get('/', (req, res) => {
-  res.redirect('/admin/');
+  res.redirect('/vote');
 });
 
-// Serve admin panel at /admin and /admin/
-app.get('/admin', (req, res) => {
-  res.sendFile(path.join(__dirname, 'admin-panel', 'index.html'));
+app.get('/vote', (req, res) => {
+  res.sendFile(path.join(__dirname, 'inc-voting-ui', 'build', 'index.html'));
 });
 
-app.get('/admin/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'admin-panel', 'index.html'));
-});
-
-// Also allow direct access via /admin-panel path
 app.get('/admin-panel', (req, res) => {
   res.sendFile(path.join(__dirname, 'admin-panel', 'index.html'));
 });
@@ -888,10 +882,10 @@ app.use(express.static(path.join(__dirname, 'inc-voting-ui', 'build')));
 // ============================================
 app.get('*', (req, res) => {
   // Only serve the React index.html if it is NOT an API route
-  const apiPaths = ['/admin', '/results', '/statistics', '/health', '/verify-delegate', '/positions', '/submit-votes'];
-  const isApi = apiPaths.some(path => req.path.startsWith(path));
+  const apiPaths = ['/admin', '/results', '/statistics', '/health', '/verify-delegate', '/positions', '/submit-votes', '/admin-panel'];
+  const isApiOradmin = apiPaths.some(path => req.path.startsWith(path));
 
-  if (isApi) {
+  if (isApiOradmin) {
     // If it's an API path but reached here, it means the specific 
     // route handler above didn't catch it (e.g., wrong method or typo)
     return res.status(404).json({ error: 'API route not found' });
