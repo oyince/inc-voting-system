@@ -755,7 +755,6 @@ app.post('/admin/reset-votes', requireAuth, async (req, res) => {
   }
 });
 
-// --- ADD THIS ROUTE ABOVE YOUR app.get('*', ...) BLOCK ---
 app.post('/verify-delegate', async (req, res) => {
   try {
     const { token } = req.body;
@@ -769,7 +768,8 @@ app.post('/verify-delegate', async (req, res) => {
     const result = await db.sql('SELECT * FROM delegates WHERE token = ?', [token]);
     
     // SQLiteCloud driver returns a rowset; we need the first row
-    const delegate = Array.isArray(result) ? result[0] : result;
+    //const delegate = Array.isArray(result) ? result[0] : result;
+    const delegate = result.rows[0] ?? null;
 
     if (!delegate) {
       console.log('No delegate found for token:', token);
