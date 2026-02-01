@@ -771,20 +771,25 @@ app.post('/verify-delegate', async (req, res) => {
       [token]
     );
 
-    console.log('Rows returned:', result.rows?.length);
-
-    const delegate = result.rows?.[0] ?? null;
+    const delegate =
+      Array.isArray(result) && result.length > 0
+        ? result[0]
+        : null;
 
     if (!delegate) {
-      return res.status(404).json({ error: 'Invalid Delegate ID. Please try again.' });
+      return res
+        .status(404)
+        .json({ error: 'Invalid Delegate ID. Please try again.' });
     }
 
+    console.log('Delegate found:', delegate.name);
     res.json(delegate);
   } catch (error) {
     console.error('Verification error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
+
 
 
 // ============================================
