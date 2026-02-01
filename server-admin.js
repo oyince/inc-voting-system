@@ -719,8 +719,10 @@ app.get('/statistics', async (req, res) => {
     const delegatesCount = await dbQuery('SELECT COUNT(*) as count FROM delegates');
     const votedCount = await dbQuery('SELECT COUNT(*) as count FROM delegates WHERE has_voted = 1');
     const votesCount = await dbQuery('SELECT COUNT(*) as count FROM votes');
-    const candidatesCount = await dbQuery('SELECT COUNT(*) as count FROM candidates');    
-    console.log('RAW DB RESPONSE:', delegatesResult);
+    const candidatesCount = await dbQuery('SELECT COUNT(*) as count FROM candidates'); 
+
+    console.log('RAW DB RESPONSE:', delegatesCount);
+
     const stats = {
       total_delegates: (Array.isArray(delegatesCount) ? delegatesCount[0] : delegatesCount).count || 0,
       voted_delegates: (Array.isArray(votedCount) ? votedCount[0] : votedCount).count || 0,
@@ -728,7 +730,7 @@ app.get('/statistics', async (req, res) => {
       total_candidates: (Array.isArray(candidatesCount) ? candidatesCount[0] : candidatesCount).count || 0
     };
     
-    console.log('Statistics:', stats);
+    console.log('Statistics success:', stats);
     res.json(stats);
   } catch (error) {
     console.error('Statistics error:', error);
