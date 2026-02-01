@@ -765,11 +765,15 @@ app.post('/verify-delegate', async (req, res) => {
     }
 
     // UPDATED: Querying the 'token' column instead of 'id'
-    const result = await db.sql('SELECT * FROM delegates WHERE token = ?', [token]);
-    
-    // SQLiteCloud driver returns a rowset; we need the first row
+    //const result = await db.sql('SELECT * FROM delegates WHERE token = ?', [token]);
     //const delegate = Array.isArray(result) ? result[0] : result;
-    const delegate = result.rows[0] ?? null;
+    const result = await dbQuery(
+      'SELECT * FROM delegates WHERE token = ?',
+      [token]
+    );
+
+    const delegate = result.rows?.[0] ?? null;
+    console.log('Token length:', token.length);
 
     if (!delegate) {
       console.log('No delegate found for token:', token);
