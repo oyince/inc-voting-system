@@ -12,8 +12,18 @@ const path = require('path');
 const fs = require('fs');
 const QRCode = require('qrcode');
 const { Database } = require('@sqlitecloud/drivers');
+const http = require('http');
+const { Server } = require('socket.io');
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: process.env.FRONTEND_URL || true,
+    credentials: true
+  }
+});
+
 const PORT = process.env.PORT || 10000;
 
 // SQLiteCloud Database connection
@@ -86,9 +96,11 @@ app.use(session({
 // Serve admin-panel directory (contains css, js, index.html)
 app.use('/admin-panel', express.static(path.join(__dirname, 'admin-panel')));
 
+// Serve the built React voting UI
+app.use(express.static(path.join(__dirname, 'inc-voting-ui', 'build')));
+
 // Serve other directories if they exist
 app.use('/documentation', express.static(path.join(__dirname, 'documentation')));
-app.use('/inc-voting-ui', express.static(path.join(__dirname, 'inc-voting-ui')));
 app.use('/candidates', express.static(path.join(__dirname, 'candidates')));
 app.use('/qr-codes', express.static(path.join(__dirname, 'qr-codes')));
 
@@ -697,6 +709,32 @@ app.get('/results', async (req, res) => {
 });
 
 // ============================================
+// STATISTICS (for voting UI dashboard)
+// ============================================
+
+app.get('/statistics', async (req, res) => {
+  try {
+    console.log('Fetching statistics for voting UI...');
+    
+    const delegatesCount = await dbQuery('SELECT COUNT(*) as count FROM delegates');
+    const votedCount = await dbQuery('SELECT COUNT(*) as count FROM delegates WHERE has_voted = 1');
+    const votesCount = await dbQuery('SELECT COUNT(*) as count FROM votes');
+    
+    const stats = {
+      total_delegates: (Array.isArray(delegatesCount) ? delegatesCount[0] : delegatesCount).count || 0,
+      voted_delegates: (Array.isArray(votedCount) ? votedCount[0] : votedCount).count || 0,
+      total_votes: (Array.isArray(votesCount) ? votesCount[0] : votesCount).count || 0
+    };
+    
+    console.log('Statistics:', stats);
+    res.json(stats);
+  } catch (error) {
+    console.error('Statistics error:', error);
+    res.status(500).json({ error: 'Failed to fetch statistics: ' + error.message });
+  }
+});
+
+// ============================================
 // RESET VOTES
 // ============================================
 
@@ -711,6 +749,19 @@ app.post('/admin/reset-votes', requireAuth, async (req, res) => {
     console.error('Reset votes error:', error);
     res.status(500).json({ error: 'Failed to reset votes: ' + error.message });
   }
+});
+
+// ============================================
+// REACT APP CATCH-ALL (must be last)
+// ============================================
+app.get('*', (req, res) => {
+  // Don't catch API routes
+  if (req.path.startsWith('/admin') || req.path.startsWith('/results') || req.path.startsWith('/statistics')) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  
+  // Serve React app for all other routes
+  res.sendFile(path.join(__dirname, 'inc-voting-ui', 'build', 'index.html'));
 });
 
 // ============================================
@@ -731,7 +782,16 @@ app.use((err, req, res, next) => {
 const startServer = async () => {
   await connectDatabase();
 
-  app.listen(PORT, '0.0.0.0', () => {
+  // Socket.IO connection handler
+  io.on('connection', (socket) => {
+    console.log('Client connected:', socket.id);
+    
+    socket.on('disconnect', () => {
+      console.log('Client disconnected:', socket.id);
+    });
+  });
+
+  server.listen(PORT, '0.0.0.0', () => {
     console.log(`
 ╔═══════════════════════════════════════════════════════╗
 ║  🗳️  INC Voting System - Server Running              ║
@@ -739,6 +799,7 @@ const startServer = async () => {
 ║  Port: ${PORT.toString().padEnd(44)} ║
 ║  Database: SQLiteCloud                               ║
 ║  Environment: ${process.env.NODE_ENV || 'development'}                           ║
+║  Socket.IO: Enabled                                  ║
 ╠═══════════════════════════════════════════════════════╣
 ║  Admin Login: admin / admin123                       ║
 ╠═══════════════════════════════════════════════════════╣
@@ -747,6 +808,7 @@ const startServer = async () => {
 ║    /admin-panel/  → Admin panel (alt)                ║
 ║    /health        → Health check                     ║
 ║    /results       → Live results                     ║
+║    /statistics    → Statistics API                   ║
 ╚═══════════════════════════════════════════════════════╝
     `);
   });
