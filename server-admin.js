@@ -209,56 +209,37 @@ app.get('/admin/auth-status', (req, res) => {
 app.post('/admin/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    console.log('Login attempt for user:', username);
+    console.log(`Admin login attempt for: ${username}`);
 
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password required' });
-    }
-
-    const result = await dbQuery(
-      'SELECT * FROM admin_users WHERE username = ?',
-      [username]
-    );
-
-    console.log('User lookup result:', result);
-
-    // Handle different result formats from SQLiteCloud
-    let user = null;
-    if (Array.isArray(result) && result.length > 0) {
-      user = result[0];
-    } else if (result && typeof result === 'object' && result.id) {
-      user = result;
-    }
+    // 1. Query the admin_users table
+    const result = await db.sql('SELECT * FROM admin_users WHERE username = ? LIMIT 1', [username]);
+    
+    // SQLiteCloud result handling
+    const user = Array.isArray(result) ? result[0] : result;
 
     if (!user) {
-      console.log('User not found');
+      console.log('Admin user not found in DB');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    console.log('User found:', { id: user.id, username: user.username });
+    // 2. Compare the provided password with the password_hash in DB
+    // IMPORTANT: user.password_hash matches your column name
+    const isMatch = await bcrypt.compare(password, user.password_hash);
 
-    const passwordMatch = bcrypt.compareSync(password, user.password_hash);
-    console.log('Password match:', passwordMatch);
-
-    if (!passwordMatch) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+    if (isMatch) {
+      // 3. Set Session
+      req.session.authenticated = true;
+      req.session.username = user.username;
+      
+      console.log('Login successful');
+      res.json({ success: true, username: user.username });
+    } else {
+      console.log('Password does not match');
+      res.status(401).json({ error: 'Invalid credentials' });
     }
-
-    req.session.admin = {
-      id: user.id,
-      username: user.username
-    };
-
-    console.log('Login successful, session set');
-
-    res.json({
-      success: true,
-      username: user.username
-    });
-
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Login failed: ' + error.message });
+    console.error('Login Error:', error);
+    res.status(500).json({ error: 'Internal server error during login' });
   }
 });
 

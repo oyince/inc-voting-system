@@ -2,7 +2,7 @@
 // Admin panel functionality for SQLiteCloud connection
 // Location: INC-VOTING-SYSTEM/admin-panel/js/admin.js
 
-const API_URL ="";
+const API_URL = "https://inc-voting-system.onrender.com";
 
 // Helper function to handle API errors
 function handleApiError(error, defaultMessage) {
@@ -44,8 +44,8 @@ document.getElementById("loginForm")?.addEventListener("submit", async (e) => {
     const res = await fetch(`${API_URL}/admin/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include",
       body: JSON.stringify({ username, password }),
+      credentials: "include",  
     });
 
     const data = await res.json();
