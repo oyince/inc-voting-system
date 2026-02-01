@@ -203,35 +203,38 @@ app.get('/admin/auth-status', (req, res) => {
 app.post('/admin/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    console.log(`Attempting login for: ${username}`);
+    console.log(`Login attempt: ${username}`);
 
+    // 1. Fetch user
     const result = await db.sql('SELECT * FROM admin_users WHERE username = ? LIMIT 1', [username]);
     
-    // 🔍 DEBUG: This will show in your Render logs exactly what the DB returns
-    console.log('DB Result:', JSON.stringify(result));
-
-    // 🚀 THE FIX: SQLiteCloud data is usually in result.data or result
-    const user = (result && result.data && result.data.length > 0) ? result.data[0] : 
-                 (Array.isArray(result) && result.length > 0) ? result[0] : null;
+    // 🔍 THE CRITICAL FIX: SQLiteCloud returns an object where the rows are in .data
+    // If you just used result[0], it would be undefined.
+    let user = null;
+    if (result && result.data && result.data.length > 0) {
+      user = result.data[0];
+    } else if (Array.isArray(result) && result.length > 0) {
+      user = result[0];
+    }
 
     if (!user) {
-      console.log("User not found in result set");
+      console.log('User not found in result structure:', JSON.stringify(result));
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Since you removed bcrypt, compare as plain text strings
-    // Ensure the DB column name is exactly 'password_hash'
+    // 2. Plain Text Comparison (as requested)
+    // IMPORTANT: Check if your DB column is 'password_hash' or 'password'
     if (user.password_hash === password) {
       req.session.authenticated = true;
       req.session.username = user.username;
-      console.log("Login Successful");
+      console.log('Login successful');
       return res.json({ success: true });
     } else {
-      console.log(`Password mismatch. DB has: ${user.password_hash}, Sent: ${password}`);
+      console.log('Password mismatch');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
   } catch (error) {
-    console.error('Login Error:', error);
+    console.error('Database Error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
