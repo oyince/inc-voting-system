@@ -208,11 +208,11 @@ app.post('/admin/login', async (req, res) => {
     // 1. Query the admin_users table
     const result = await db.sql('SELECT * FROM admin_users WHERE username = ? LIMIT 1', [username]);
     
-    // SQLiteCloud result handling
-    const user = Array.isArray(result) ? result[0] : result;
+    const user = (result && result.data && result.data.length > 0) ? result.data[0] : 
+    (Array.isArray(result) && result.length > 0) ? result[0] : null;
 
     if (!user) {
-      console.log('Admin user not found in DB');
+      console.log(`User ${username} NOT FOUND in database query result.`);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -221,12 +221,10 @@ app.post('/admin/login', async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password_hash);
 
     if (isMatch) {
-      // 3. Set Session
-      req.session.authenticated = true;
-      req.session.username = user.username;
-      
-      console.log('Login successful');
-      res.json({ success: true, username: user.username });
+        req.session.authenticated = true;
+        req.session.username = user.username;
+        console.log('Login successful for:', user.username);
+        res.json({ success: true });   
     } else {
       console.log('Password does not match');
       res.status(401).json({ error: 'Invalid credentials' });
