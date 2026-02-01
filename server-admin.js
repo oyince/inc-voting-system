@@ -755,12 +755,35 @@ app.post('/admin/reset-votes', requireAuth, async (req, res) => {
   }
 });
 
+// Add this to server-admin.js
+app.post('/verify-delegate', async (req, res) => {
+  try {
+    const { token } = req.body;
+    console.log('Verifying delegate with token:', token);
+
+    // Look for the delegate by their unique ID/Token
+    const result = await dbQuery('SELECT * FROM delegates WHERE id = ?', [token]);
+    
+    // Handle SQLiteCloud rowset structure
+    const delegate = Array.isArray(result) ? result[0] : result;
+
+    if (!delegate) {
+      return res.status(404).json({ error: 'Invalid Delegate ID. Please try again.' });
+    }
+
+    res.json(delegate);
+  } catch (error) {
+    console.error('Verification error:', error);
+    res.status(500).json({ error: 'Database error during verification' });
+  }
+});
+
 // ============================================
 // REACT APP CATCH-ALL (must be last)
 // ============================================
 app.get('*', (req, res) => {
   // Only serve the React index.html if it is NOT an API route
-  const apiPaths = ['/admin', '/results', '/statistics', '/health'];
+  const apiPaths = ['/admin', '/results', '/statistics', '/health', '/verify-delegate'];
   const isApi = apiPaths.some(path => req.path.startsWith(path));
 
   if (isApi) {
