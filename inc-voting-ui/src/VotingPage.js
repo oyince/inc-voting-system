@@ -13,12 +13,17 @@ import { useLocation, useNavigate } from "react-router-dom";
 import Navbar from "./Navbar";
 
 // Use environment variable for API URL
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:3000";
+const API_URL = process.env.REACT_APP_API_URL;
 
 function VotingPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { token, delegateName } = location.state || {};
+  //const { token, delegateName } = location.state || {};
+  const searchParams = new URLSearchParams(location.search);
+  const tokenFromQuery = searchParams.get("token");
+
+  const { token: tokenFromState, delegateName } = location.state || {};
+  const token = tokenFromState || tokenFromQuery;
   
   const [positions, setPositions] = useState([]);
   const [currentPage, setCurrentPage] = useState(0);
