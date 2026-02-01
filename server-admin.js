@@ -720,7 +720,7 @@ app.get('/statistics', async (req, res) => {
     const votedCount = await dbQuery('SELECT COUNT(*) as count FROM delegates WHERE has_voted = 1');
     const votesCount = await dbQuery('SELECT COUNT(*) as count FROM votes');
     const candidatesCount = await dbQuery('SELECT COUNT(*) as count FROM candidates');    
-   
+    console.log('RAW DB RESPONSE:', delegatesResult);
     const stats = {
       total_delegates: (Array.isArray(delegatesCount) ? delegatesCount[0] : delegatesCount).count || 0,
       voted_delegates: (Array.isArray(votedCount) ? votedCount[0] : votedCount).count || 0,

@@ -29,7 +29,8 @@ function Dashboard() {
   const [statistics, setStatistics] = useState({
     total_delegates: 0,
     voted_delegates: 0,
-    total_votes: 0
+    total_votes: 0,
+    total_candidates: 0
   });
   const [loading, setLoading] = useState(true);
   const [selectedZone, setSelectedZone] = useState("ALL");
