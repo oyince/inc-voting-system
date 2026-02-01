@@ -1,6 +1,6 @@
-// server-admin-sqlitecloud.js
+// server-admin.js
 // Backend server for INC Voting System with SQLiteCloud Database
-// Compatible with your existing admin-panel directory structure
+// Root directory: INC-VOTING-SYSTEM/server-admin.js
 
 require('dotenv').config({ path: '.env' });
 const express = require('express');
@@ -11,7 +11,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const QRCode = require('qrcode');
-const Database = require('@sqlitecloud/drivers').Database;
+const { Database } = require('@sqlitecloud/drivers');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -20,29 +20,46 @@ const PORT = process.env.PORT || 10000;
 let db;
 const connectDatabase = async () => {
   try {
-    db = new Database(process.env.SQLITECLOUD_URL);
-    console.log('✅ Connected to SQLiteCloud database');
+    const connectionString = process.env.SQLITECLOUD_URL;
+    console.log('🔄 Connecting to SQLiteCloud...');
+    console.log('Connection string:', connectionString.replace(/apikey=[^&]+/, 'apikey=***'));
+    
+    db = new Database(connectionString);
+    
+    // Test the connection
+    const testResult = await db.sql('SELECT 1 as test');
+    console.log('✅ Connected to SQLiteCloud database successfully');
+    console.log('Test query result:', testResult);
+    
     return db;
   } catch (err) {
     console.error('❌ SQLiteCloud connection failed:', err);
+    console.error('Error details:', err.message);
     process.exit(1);
   }
 };
 
-// Helper function to run queries
+// Helper function to run queries with proper error handling
 const dbQuery = async (sql, params = []) => {
   try {
+    console.log('Executing query:', sql);
+    console.log('With params:', params);
+    
     const result = await db.sql(sql, ...params);
+    
+    console.log('Query result:', result);
     return result;
   } catch (error) {
     console.error('Database query error:', error);
+    console.error('SQL:', sql);
+    console.error('Params:', params);
     throw error;
   }
 };
 
 // Middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: process.env.FRONTEND_URL || true,
   credentials: true
 }));
 
@@ -144,8 +161,22 @@ const requireAuth = (req, res, next) => {
 // ============================================
 // HEALTH CHECK
 // ============================================
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Server is running' });
+app.get('/health', async (req, res) => {
+  try {
+    const testResult = await db.sql('SELECT 1 as test');
+    res.json({ 
+      status: 'ok', 
+      message: 'Server is running',
+      database: 'connected',
+      test: testResult
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error', 
+      message: 'Server running but database error',
+      error: error.message
+    });
+  }
 });
 
 // ============================================
@@ -153,6 +184,7 @@ app.get('/health', (req, res) => {
 // ============================================
 
 app.get('/admin/auth-status', (req, res) => {
+  console.log('Auth status check, session:', req.session);
   if (req.session.admin) {
     res.json({
       authenticated: true,
@@ -166,6 +198,7 @@ app.get('/admin/auth-status', (req, res) => {
 app.post('/admin/login', async (req, res) => {
   try {
     const { username, password } = req.body;
+    console.log('Login attempt for user:', username);
 
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password required' });
@@ -176,13 +209,25 @@ app.post('/admin/login', async (req, res) => {
       [username]
     );
 
-    const user = Array.isArray(result) ? result[0] : result;
+    console.log('User lookup result:', result);
+
+    // Handle different result formats from SQLiteCloud
+    let user = null;
+    if (Array.isArray(result) && result.length > 0) {
+      user = result[0];
+    } else if (result && typeof result === 'object' && result.id) {
+      user = result;
+    }
 
     if (!user) {
+      console.log('User not found');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    console.log('User found:', { id: user.id, username: user.username });
+
     const passwordMatch = bcrypt.compareSync(password, user.password_hash);
+    console.log('Password match:', passwordMatch);
 
     if (!passwordMatch) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -193,6 +238,8 @@ app.post('/admin/login', async (req, res) => {
       username: user.username
     };
 
+    console.log('Login successful, session set');
+
     res.json({
       success: true,
       username: user.username
@@ -200,7 +247,7 @@ app.post('/admin/login', async (req, res) => {
 
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ error: 'Login failed' });
+    res.status(500).json({ error: 'Login failed: ' + error.message });
   }
 });
 
@@ -218,19 +265,28 @@ app.post('/admin/logout', (req, res) => {
 // ============================================
 app.get('/admin/stats', requireAuth, async (req, res) => {
   try {
-    const stats = await dbQuery(`
-      SELECT 
-        (SELECT COUNT(*) FROM delegates) as total_delegates,
-        (SELECT COUNT(*) FROM delegates WHERE has_voted = 1) as voted_delegates,
-        (SELECT COUNT(*) FROM candidates) as total_candidates,
-        (SELECT COUNT(*) FROM votes) as total_votes
-    `);
-
-    const result = Array.isArray(stats) ? stats[0] : stats;
-    res.json(result);
+    console.log('Fetching dashboard stats...');
+    
+    // Fetch stats separately to handle SQLiteCloud response format
+    const delegatesCount = await dbQuery('SELECT COUNT(*) as count FROM delegates');
+    const votedCount = await dbQuery('SELECT COUNT(*) as count FROM delegates WHERE has_voted = 1');
+    const candidatesCount = await dbQuery('SELECT COUNT(*) as count FROM candidates');
+    const votesCount = await dbQuery('SELECT COUNT(*) as count FROM votes');
+    
+    console.log('Stats results:', { delegatesCount, votedCount, candidatesCount, votesCount });
+    
+    const stats = {
+      total_delegates: (Array.isArray(delegatesCount) ? delegatesCount[0] : delegatesCount).count || 0,
+      voted_delegates: (Array.isArray(votedCount) ? votedCount[0] : votedCount).count || 0,
+      total_candidates: (Array.isArray(candidatesCount) ? candidatesCount[0] : candidatesCount).count || 0,
+      total_votes: (Array.isArray(votesCount) ? votesCount[0] : votesCount).count || 0
+    };
+    
+    console.log('Formatted stats:', stats);
+    res.json(stats);
   } catch (error) {
     console.error('Stats error:', error);
-    res.status(500).json({ error: 'Failed to fetch stats' });
+    res.status(500).json({ error: 'Failed to fetch stats: ' + error.message });
   }
 });
 
@@ -240,11 +296,21 @@ app.get('/admin/stats', requireAuth, async (req, res) => {
 
 app.get('/admin/delegates', requireAuth, async (req, res) => {
   try {
-    const delegates = await dbQuery(`
-      SELECT * FROM delegates ORDER BY name ASC
-    `);
-
-    const delegatesArray = Array.isArray(delegates) ? delegates : [delegates];
+    console.log('Fetching delegates...');
+    
+    const delegates = await dbQuery('SELECT * FROM delegates ORDER BY name ASC');
+    
+    console.log('Delegates query result:', delegates);
+    
+    // Handle different response formats
+    let delegatesArray = [];
+    if (Array.isArray(delegates)) {
+      delegatesArray = delegates;
+    } else if (delegates && typeof delegates === 'object') {
+      delegatesArray = [delegates];
+    }
+    
+    console.log('Formatted delegates array:', delegatesArray);
 
     res.json({
       delegates: delegatesArray,
@@ -252,7 +318,7 @@ app.get('/admin/delegates', requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error('Get delegates error:', error);
-    res.status(500).json({ error: 'Failed to fetch delegates' });
+    res.status(500).json({ error: 'Failed to fetch delegates: ' + error.message });
   }
 });
 
@@ -272,7 +338,7 @@ app.get('/admin/delegates/:id', requireAuth, async (req, res) => {
     res.json(delegate);
   } catch (error) {
     console.error('Get delegate error:', error);
-    res.status(500).json({ error: 'Failed to fetch delegate' });
+    res.status(500).json({ error: 'Failed to fetch delegate: ' + error.message });
   }
 });
 
@@ -280,25 +346,23 @@ app.post('/admin/delegates', requireAuth, async (req, res) => {
   try {
     const { name, gender, community, zone, phone, email } = req.body;
 
-    if (!name || !zone) {
-      return res.status(400).json({ error: 'Name and zone are required' });
+    if (!name) {
+      return res.status(400).json({ error: 'Name is required' });
     }
 
+    // Generate unique token
     const token = `INC-1-${Date.now().toString(16).toUpperCase().slice(-12)}`;
 
     await dbQuery(`
       INSERT INTO delegates (name, token, gender, community, zone, phone, email, has_voted)
       VALUES (?, ?, ?, ?, ?, ?, ?, 0)
-    `, [name, token, gender || '', community || '', zone, phone || '', email || '']);
+    `, [name, token, gender || '', community || '', zone || '', phone || '', email || '']);
 
-    res.json({
-      success: true,
-      token
-    });
+    res.json({ success: true, token });
 
   } catch (error) {
     console.error('Add delegate error:', error);
-    res.status(500).json({ error: 'Failed to add delegate' });
+    res.status(500).json({ error: 'Failed to add delegate: ' + error.message });
   }
 });
 
@@ -310,18 +374,19 @@ app.put('/admin/delegates/:id', requireAuth, async (req, res) => {
       UPDATE delegates 
       SET name = ?, gender = ?, community = ?, zone = ?, phone = ?, email = ?
       WHERE id = ?
-    `, [name, gender || '', community || '', zone, phone || '', email || '', req.params.id]);
+    `, [name, gender || '', community || '', zone || '', phone || '', email || '', req.params.id]);
 
     res.json({ success: true });
 
   } catch (error) {
     console.error('Update delegate error:', error);
-    res.status(500).json({ error: 'Failed to update delegate' });
+    res.status(500).json({ error: 'Failed to update delegate: ' + error.message });
   }
 });
 
 app.delete('/admin/delegates/:id', requireAuth, async (req, res) => {
   try {
+    // Delete associated votes first
     await dbQuery('DELETE FROM votes WHERE delegate_id = ?', [req.params.id]);
     await dbQuery('DELETE FROM delegates WHERE id = ?', [req.params.id]);
 
@@ -329,100 +394,59 @@ app.delete('/admin/delegates/:id', requireAuth, async (req, res) => {
 
   } catch (error) {
     console.error('Delete delegate error:', error);
-    res.status(500).json({ error: 'Failed to delete delegate' });
+    res.status(500).json({ error: 'Failed to delete delegate: ' + error.message });
   }
 });
 
-app.get('/admin/delegates/:id/qr', requireAuth, async (req, res) => {
+// Import delegates from CSV
+app.post('/admin/delegates/import', requireAuth, async (req, res) => {
   try {
-    const result = await dbQuery(
-      'SELECT * FROM delegates WHERE id = ?',
-      [req.params.id]
-    );
-
-    const delegate = Array.isArray(result) ? result[0] : result;
-
-    if (!delegate) {
-      return res.status(404).json({ error: 'Delegate not found' });
-    }
-
-    const qrDir = './qr-codes';
-    if (!fs.existsSync(qrDir)) {
-      fs.mkdirSync(qrDir, { recursive: true });
-    }
-
-    const qrPath = path.join(qrDir, `${delegate.token}.png`);
+    const { delegates } = req.body;
     
-    if (!fs.existsSync(qrPath)) {
-      const votingUrl = `${process.env.FRONTEND_URL}/vote?token=${delegate.token}`;
-      await QRCode.toFile(qrPath, votingUrl, {
-        width: 400,
-        margin: 2
-      });
+    if (!Array.isArray(delegates) || delegates.length === 0) {
+      return res.status(400).json({ error: 'No delegates data provided' });
+    }
+
+    let imported = 0;
+    let skipped = 0;
+
+    for (const delegate of delegates) {
+      try {
+        const token = `INC-1-${Date.now().toString(16).toUpperCase().slice(-12)}`;
+        
+        await dbQuery(`
+          INSERT INTO delegates (name, token, gender, community, zone, phone, email, has_voted)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+        `, [
+          delegate.name,
+          token,
+          delegate.gender || '',
+          delegate.community || '',
+          delegate.zone || '',
+          delegate.phone || '',
+          delegate.email || ''
+        ]);
+        
+        imported++;
+        
+        // Small delay to ensure unique tokens
+        await new Promise(resolve => setTimeout(resolve, 5));
+      } catch (err) {
+        console.error('Error importing delegate:', delegate.name, err);
+        skipped++;
+      }
     }
 
     res.json({
-      name: delegate.name,
-      token: delegate.token,
-      qr_code: `/qr-codes/${delegate.token}.png`
+      success: true,
+      imported,
+      skipped,
+      total: delegates.length
     });
 
   } catch (error) {
-    console.error('QR code error:', error);
-    res.status(500).json({ error: 'Failed to generate QR code' });
-  }
-});
-
-app.post('/admin/delegates/import', requireAuth, upload.single('file'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
-
-    const csv = require('csv-parser');
-    const results = [];
-
-    fs.createReadStream(req.file.path)
-      .pipe(csv())
-      .on('data', (data) => results.push(data))
-      .on('end', async () => {
-        let imported = 0;
-
-        for (const row of results) {
-          try {
-            const token = `INC-1-${Date.now().toString(16).toUpperCase().slice(-12)}`;
-            
-            await dbQuery(`
-              INSERT INTO delegates (name, token, gender, community, zone, phone, email, has_voted)
-              VALUES (?, ?, ?, ?, ?, ?, ?, 0)
-            `, [
-              row.name || '',
-              token,
-              row.gender || '',
-              row.community || '',
-              row.zone || '',
-              row.phone || '',
-              row.email || ''
-            ]);
-
-            imported++;
-            await new Promise(resolve => setTimeout(resolve, 10));
-          } catch (err) {
-            console.error('Row import error:', err);
-          }
-        }
-
-        fs.unlinkSync(req.file.path);
-
-        res.json({
-          success: true,
-          count: imported
-        });
-      });
-
-  } catch (error) {
     console.error('Import error:', error);
-    res.status(500).json({ error: 'Failed to import delegates' });
+    res.status(500).json({ error: 'Failed to import delegates: ' + error.message });
   }
 });
 
@@ -432,17 +456,28 @@ app.post('/admin/delegates/import', requireAuth, upload.single('file'), async (r
 
 app.get('/admin/candidates', requireAuth, async (req, res) => {
   try {
+    console.log('Fetching candidates...');
+    
     const candidates = await dbQuery(`
       SELECT 
         c.*,
         p.title as position_title,
-        p.zone
+        p.zone as position_zone
       FROM candidates c
       LEFT JOIN positions p ON c.position_id = p.id
       ORDER BY p.display_order, c.display_order
     `);
+    
+    console.log('Candidates query result:', candidates);
 
-    const candidatesArray = Array.isArray(candidates) ? candidates : [candidates];
+    let candidatesArray = [];
+    if (Array.isArray(candidates)) {
+      candidatesArray = candidates;
+    } else if (candidates && typeof candidates === 'object') {
+      candidatesArray = [candidates];
+    }
+    
+    console.log('Formatted candidates array:', candidatesArray);
 
     res.json({
       candidates: candidatesArray,
@@ -450,7 +485,7 @@ app.get('/admin/candidates', requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error('Get candidates error:', error);
-    res.status(500).json({ error: 'Failed to fetch candidates' });
+    res.status(500).json({ error: 'Failed to fetch candidates: ' + error.message });
   }
 });
 
@@ -470,7 +505,7 @@ app.get('/admin/candidates/:id', requireAuth, async (req, res) => {
     res.json(candidate);
   } catch (error) {
     console.error('Get candidate error:', error);
-    res.status(500).json({ error: 'Failed to fetch candidate' });
+    res.status(500).json({ error: 'Failed to fetch candidate: ' + error.message });
   }
 });
 
@@ -500,7 +535,7 @@ app.post('/admin/candidates', requireAuth, upload.single('image'), async (req, r
 
   } catch (error) {
     console.error('Add candidate error:', error);
-    res.status(500).json({ error: 'Failed to add candidate' });
+    res.status(500).json({ error: 'Failed to add candidate: ' + error.message });
   }
 });
 
@@ -528,7 +563,7 @@ app.put('/admin/candidates/:id', requireAuth, upload.single('image'), async (req
 
   } catch (error) {
     console.error('Update candidate error:', error);
-    res.status(500).json({ error: 'Failed to update candidate' });
+    res.status(500).json({ error: 'Failed to update candidate: ' + error.message });
   }
 });
 
@@ -541,7 +576,7 @@ app.delete('/admin/candidates/:id', requireAuth, async (req, res) => {
 
   } catch (error) {
     console.error('Delete candidate error:', error);
-    res.status(500).json({ error: 'Failed to delete candidate' });
+    res.status(500).json({ error: 'Failed to delete candidate: ' + error.message });
   }
 });
 
@@ -551,15 +586,25 @@ app.delete('/admin/candidates/:id', requireAuth, async (req, res) => {
 
 app.get('/admin/positions', requireAuth, async (req, res) => {
   try {
-    const positions = await dbQuery(`
-      SELECT * FROM positions ORDER BY display_order ASC
-    `);
+    console.log('Fetching positions...');
+    
+    const positions = await dbQuery('SELECT * FROM positions ORDER BY display_order ASC');
+    
+    console.log('Positions query result:', positions);
 
-    const positionsArray = Array.isArray(positions) ? positions : [positions];
+    let positionsArray = [];
+    if (Array.isArray(positions)) {
+      positionsArray = positions;
+    } else if (positions && typeof positions === 'object') {
+      positionsArray = [positions];
+    }
+    
+    console.log('Formatted positions array:', positionsArray);
+    
     res.json(positionsArray);
   } catch (error) {
     console.error('Get positions error:', error);
-    res.status(500).json({ error: 'Failed to fetch positions' });
+    res.status(500).json({ error: 'Failed to fetch positions: ' + error.message });
   }
 });
 
@@ -570,7 +615,7 @@ app.get('/admin/positions', requireAuth, async (req, res) => {
 app.post('/admin/qr-codes/generate', requireAuth, async (req, res) => {
   try {
     const delegates = await dbQuery('SELECT * FROM delegates');
-    const delegatesArray = Array.isArray(delegates) ? delegates : [delegates];
+    let delegatesArray = Array.isArray(delegates) ? delegates : [delegates];
     
     const qrDir = './qr-codes';
     if (!fs.existsSync(qrDir)) {
@@ -600,7 +645,7 @@ app.post('/admin/qr-codes/generate', requireAuth, async (req, res) => {
 
   } catch (error) {
     console.error('Generate QR codes error:', error);
-    res.status(500).json({ error: 'Failed to generate QR codes' });
+    res.status(500).json({ error: 'Failed to generate QR codes: ' + error.message });
   }
 });
 
@@ -610,11 +655,11 @@ app.post('/admin/qr-codes/generate', requireAuth, async (req, res) => {
 
 app.get('/results', async (req, res) => {
   try {
-    const positions = await dbQuery(`
-      SELECT * FROM positions ORDER BY display_order ASC
-    `);
-
-    const positionsArray = Array.isArray(positions) ? positions : [positions];
+    console.log('Fetching results...');
+    
+    const positions = await dbQuery('SELECT * FROM positions ORDER BY display_order ASC');
+    
+    let positionsArray = Array.isArray(positions) ? positions : [positions];
     const results = [];
 
     for (const position of positionsArray) {
@@ -627,11 +672,11 @@ app.get('/results', async (req, res) => {
         FROM candidates c
         LEFT JOIN votes v ON c.id = v.candidate_id
         WHERE c.position_id = ?
-        GROUP BY c.id
+        GROUP BY c.id, c.name, c.image_url
         ORDER BY vote_count DESC, c.display_order ASC
       `, [position.id]);
 
-      const candidatesArray = Array.isArray(candidates) ? candidates : [candidates];
+      let candidatesArray = Array.isArray(candidates) ? candidates : [candidates];
 
       results.push({
         position_id: position.id,
@@ -640,12 +685,14 @@ app.get('/results', async (req, res) => {
         candidates: candidatesArray
       });
     }
+    
+    console.log('Results formatted:', results);
 
     res.json(results);
 
   } catch (error) {
     console.error('Results error:', error);
-    res.status(500).json({ error: 'Failed to fetch results' });
+    res.status(500).json({ error: 'Failed to fetch results: ' + error.message });
   }
 });
 
@@ -662,8 +709,19 @@ app.post('/admin/reset-votes', requireAuth, async (req, res) => {
 
   } catch (error) {
     console.error('Reset votes error:', error);
-    res.status(500).json({ error: 'Failed to reset votes' });
+    res.status(500).json({ error: 'Failed to reset votes: ' + error.message });
   }
+});
+
+// ============================================
+// ERROR HANDLER
+// ============================================
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ 
+    error: 'Internal server error',
+    message: err.message 
+  });
 });
 
 // ============================================
@@ -673,13 +731,14 @@ app.post('/admin/reset-votes', requireAuth, async (req, res) => {
 const startServer = async () => {
   await connectDatabase();
 
-  app.listen(PORT, () => {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`
 ╔═══════════════════════════════════════════════════════╗
 ║  🗳️  INC Voting System - Server Running              ║
 ╠═══════════════════════════════════════════════════════╣
 ║  Port: ${PORT.toString().padEnd(44)} ║
 ║  Database: SQLiteCloud                               ║
+║  Environment: ${process.env.NODE_ENV || 'development'}                           ║
 ╠═══════════════════════════════════════════════════════╣
 ║  Admin Login: admin / admin123                       ║
 ╠═══════════════════════════════════════════════════════╣
@@ -687,6 +746,7 @@ const startServer = async () => {
 ║    /admin/        → Admin panel                      ║
 ║    /admin-panel/  → Admin panel (alt)                ║
 ║    /health        → Health check                     ║
+║    /results       → Live results                     ║
 ╚═══════════════════════════════════════════════════════╝
     `);
   });
@@ -694,6 +754,11 @@ const startServer = async () => {
 
 process.on('SIGINT', () => {
   console.log('\n👋 Shutting down server...');
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n👋 Received SIGTERM, shutting down...');
   process.exit(0);
 });
 

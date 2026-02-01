@@ -1,14 +1,24 @@
 // admin-panel/js/admin.js
-// Admin panel functionality for SQLite
+// Admin panel functionality for SQLiteCloud connection
+// Location: INC-VOTING-SYSTEM/admin-panel/js/admin.js
 
 const API_BASE = "";
 
+// Helper function to handle API errors
+function handleApiError(error, defaultMessage) {
+  console.error('API Error:', error);
+  return defaultMessage + (error.message ? ': ' + error.message : '');
+}
+
+// Check authentication status
 async function checkAuth() {
   try {
+    console.log('Checking authentication status...');
     const response = await fetch(`${API_BASE}/admin/auth-status`, {
       credentials: "include",
     });
     const data = await response.json();
+    console.log('Auth status:', data);
 
     if (data.authenticated) {
       document.getElementById("loginScreen").classList.add("hidden");
@@ -17,16 +27,18 @@ async function checkAuth() {
       loadDashboard();
     }
   } catch (err) {
-    console.error("Auth check failed", err);
+    console.error("Auth check failed:", err);
   }
 }
 
-// Logic for the Login Form
+// Login Form Handler
 document.getElementById("loginForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const username = document.getElementById("username").value;
   const password = document.getElementById("password").value;
   const errorDiv = document.getElementById('loginError');
+
+  console.log('Attempting login for user:', username);
 
   try {
     const res = await fetch(`${API_BASE}/admin/login`, {
@@ -37,8 +49,10 @@ document.getElementById("loginForm")?.addEventListener("submit", async (e) => {
     });
 
     const data = await res.json();
+    console.log('Login response:', data);
 
     if (res.ok) {
+      console.log('Login successful, reloading...');
       location.reload();
     } else {
       if(errorDiv) {
@@ -74,6 +88,8 @@ async function logout() {
 
 // Show section
 function showSection(sectionName) {
+  console.log('Showing section:', sectionName);
+  
   document.querySelectorAll('.section').forEach(section => {
     section.classList.add('hidden');
   });
@@ -108,10 +124,18 @@ function showSection(sectionName) {
 // Load dashboard stats
 async function loadStats() {
   try {
+    console.log('Loading dashboard stats...');
+    
     const response = await fetch(`${API_BASE}/admin/stats`, {
       credentials: 'include'
     });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
     const stats = await response.json();
+    console.log('Stats loaded:', stats);
     
     const turnout = stats.total_delegates > 0 
       ? ((stats.voted_delegates / stats.total_delegates) * 100).toFixed(1)
@@ -141,25 +165,39 @@ async function loadStats() {
     `;
   } catch (error) {
     console.error('Failed to load stats:', error);
+    document.getElementById('statsGrid').innerHTML = `
+      <div class="alert alert-error">
+        Failed to load statistics: ${error.message}
+      </div>
+    `;
   }
 }
 
 function loadDashboard() {
+  console.log('Loading dashboard...');
   loadStats();
 }
 
 // Load delegates
 async function loadDelegates() {
   const content = document.getElementById('delegatesContent');
-  content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  content.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading delegates...</p></div>';
   
   try {
+    console.log('Fetching delegates...');
+    
     const response = await fetch(`${API_BASE}/admin/delegates`, {
       credentials: 'include'
     });
-    const data = await response.json();
     
-    if (data.delegates.length === 0) {
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    console.log('Delegates data received:', data);
+    
+    if (!data.delegates || data.delegates.length === 0) {
       content.innerHTML = `
         <div style="text-align: center; padding: 40px; color: #9ca3af;">
           <p style="font-size: 18px; margin-bottom: 20px;">No delegates yet</p>
@@ -201,9 +239,9 @@ async function loadDelegates() {
     
     data.delegates.forEach(d => {
       html += `
-        <tr data-name="${d.name.toLowerCase()}" data-token="${d.token.toLowerCase()}">
-          <td>${d.name}</td>
-          <td><code>${d.token}</code></td>
+        <tr data-name="${(d.name || '').toLowerCase()}" data-token="${(d.token || '').toLowerCase()}">
+          <td>${d.name || 'N/A'}</td>
+          <td><code>${d.token || 'N/A'}</code></td>
           <td>${d.zone || '-'}</td>
           <td>
             ${d.has_voted ? 
@@ -228,7 +266,8 @@ async function loadDelegates() {
     
     content.innerHTML = html;
   } catch (error) {
-    content.innerHTML = '<div class="alert alert-error">Failed to load delegates</div>';
+    console.error('Failed to load delegates:', error);
+    content.innerHTML = `<div class="alert alert-error">Failed to load delegates: ${error.message}</div>`;
   }
 }
 
@@ -255,10 +294,7 @@ function showAddDelegateModal() {
   modal.className = 'modal';
   modal.innerHTML = `
     <div class="modal-content">
-      <div class="modal-header">
-        <h3 class="modal-title">Add New Delegate</h3>
-        <button class="close-btn" onclick="this.closest('.modal').remove()">×</button>
-      </div>
+      <h2 style="margin-bottom: 20px;">➕ Add New Delegate</h2>
       <form id="addDelegateForm">
         <div class="form-group">
           <label class="form-label">Name *</label>
@@ -280,8 +316,8 @@ function showAddDelegateModal() {
         </div>
         
         <div class="form-group">
-          <label class="form-label">Zone *</label>
-          <select name="zone" class="form-select" required>
+          <label class="form-label">Zone</label>
+          <select name="zone" class="form-select">
             <option value="">Select...</option>
             <option value="CENTRAL ZONE">CENTRAL ZONE</option>
             <option value="EASTERN ZONE">EASTERN ZONE</option>
@@ -320,8 +356,8 @@ function showAddDelegateModal() {
     try {
       const response = await fetch(`${API_BASE}/admin/delegates`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
       
@@ -330,8 +366,8 @@ function showAddDelegateModal() {
         loadDelegates();
         alert('Delegate added successfully!');
       } else {
-        const error = await response.json();
-        alert('Failed to add delegate: ' + (error.error || 'Unknown error'));
+        const errorData = await response.json();
+        alert('Failed to add delegate: ' + (errorData.error || 'Unknown error'));
       }
     } catch (error) {
       alert('Error: ' + error.message);
@@ -340,28 +376,23 @@ function showAddDelegateModal() {
 }
 
 // View delegate QR code
-async function viewDelegateQR(id) {
+async function viewDelegateQR(delegateId) {
   try {
-    const response = await fetch(`${API_BASE}/admin/delegates/${id}/qr`, {
+    const response = await fetch(`${API_BASE}/admin/delegates/${delegateId}`, {
       credentials: 'include'
     });
-    const data = await response.json();
+    const delegate = await response.json();
     
     const modal = document.createElement('div');
     modal.className = 'modal';
     modal.innerHTML = `
-      <div class="modal-content" style="max-width: 400px;">
-        <div class="modal-header">
-          <h3 class="modal-title">${data.name}</h3>
-          <button class="close-btn" onclick="this.closest('.modal').remove()">×</button>
-        </div>
-        <div style="text-align: center; padding: 20px;">
-          <img src="${data.qr_code}" style="width: 100%; max-width: 300px; border-radius: 8px;">
-          <p style="margin-top: 15px; color: #9ca3af;">Token: <code>${data.token}</code></p>
-          <button onclick="window.open('${data.qr_code}', '_blank')" class="btn btn-primary" style="margin-top: 10px;">
-            📥 Download QR Code
-          </button>
-        </div>
+      <div class="modal-content" style="text-align: center;">
+        <h2>${delegate.name}</h2>
+        <p style="color: #9ca3af; margin: 10px 0;">Token: <code>${delegate.token}</code></p>
+        <img src="/qr-codes/${delegate.token}.png" style="max-width: 100%; margin: 20px 0;">
+        <button onclick="this.closest('.modal').remove()" class="btn btn-primary" style="width: 100%;">
+          Close
+        </button>
       </div>
     `;
     document.body.appendChild(modal);
@@ -371,9 +402,9 @@ async function viewDelegateQR(id) {
 }
 
 // Edit delegate
-async function editDelegate(id) {
+async function editDelegate(delegateId) {
   try {
-    const response = await fetch(`${API_BASE}/admin/delegates/${id}`, {
+    const response = await fetch(`${API_BASE}/admin/delegates/${delegateId}`, {
       credentials: 'include'
     });
     const delegate = await response.json();
@@ -382,14 +413,11 @@ async function editDelegate(id) {
     modal.className = 'modal';
     modal.innerHTML = `
       <div class="modal-content">
-        <div class="modal-header">
-          <h3 class="modal-title">Edit Delegate</h3>
-          <button class="close-btn" onclick="this.closest('.modal').remove()">×</button>
-        </div>
+        <h2 style="margin-bottom: 20px;">✏️ Edit Delegate</h2>
         <form id="editDelegateForm">
           <div class="form-group">
             <label class="form-label">Name *</label>
-            <input type="text" name="name" value="${delegate.name}" class="form-input" required>
+            <input type="text" name="name" value="${delegate.name || ''}" class="form-input" required>
           </div>
           
           <div class="form-group">
@@ -407,8 +435,9 @@ async function editDelegate(id) {
           </div>
           
           <div class="form-group">
-            <label class="form-label">Zone *</label>
-            <select name="zone" class="form-select" required>
+            <label class="form-label">Zone</label>
+            <select name="zone" class="form-select">
+              <option value="">Select...</option>
               <option value="CENTRAL ZONE" ${delegate.zone === 'CENTRAL ZONE' ? 'selected' : ''}>CENTRAL ZONE</option>
               <option value="EASTERN ZONE" ${delegate.zone === 'EASTERN ZONE' ? 'selected' : ''}>EASTERN ZONE</option>
               <option value="WESTERN ZONE" ${delegate.zone === 'WESTERN ZONE' ? 'selected' : ''}>WESTERN ZONE</option>
@@ -430,7 +459,7 @@ async function editDelegate(id) {
               Cancel
             </button>
             <button type="submit" class="btn btn-success" style="flex: 1;">
-              💾 Update
+              💾 Update Delegate
             </button>
           </div>
         </form>
@@ -444,10 +473,10 @@ async function editDelegate(id) {
       const data = Object.fromEntries(formData);
       
       try {
-        const response = await fetch(`${API_BASE}/admin/delegates/${id}`, {
+        const response = await fetch(`${API_BASE}/admin/delegates/${delegateId}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data)
         });
         
@@ -456,8 +485,8 @@ async function editDelegate(id) {
           loadDelegates();
           alert('Delegate updated successfully!');
         } else {
-          const error = await response.json();
-          alert('Failed to update delegate: ' + (error.error || 'Unknown error'));
+          const errorData = await response.json();
+          alert('Failed to update delegate: ' + (errorData.error || 'Unknown error'));
         }
       } catch (error) {
         alert('Error: ' + error.message);
@@ -471,7 +500,7 @@ async function editDelegate(id) {
 
 // Delete delegate
 async function deleteDelegate(id) {
-  if (!confirm('Are you sure you want to delete this delegate? This action cannot be undone.')) return;
+  if (!confirm('Are you sure you want to delete this delegate? This will also delete their votes.')) return;
   
   try {
     const response = await fetch(`${API_BASE}/admin/delegates/${id}`, {
@@ -481,9 +510,11 @@ async function deleteDelegate(id) {
     
     if (response.ok) {
       loadDelegates();
+      loadStats();
       alert('Delegate deleted successfully');
     } else {
-      alert('Failed to delete delegate');
+      const data = await response.json();
+      alert('Failed to delete delegate: ' + (data.error || 'Unknown error'));
     }
   } catch (error) {
     alert('Error: ' + error.message);
@@ -496,63 +527,112 @@ function showImportModal() {
   modal.className = 'modal';
   modal.innerHTML = `
     <div class="modal-content">
-      <div class="modal-header">
-        <h3 class="modal-title">Import Delegates from CSV</h3>
-        <button class="close-btn" onclick="this.closest('.modal').remove()">×</button>
-      </div>
-      <div style="padding: 20px;">
-        <p style="color: #9ca3af; margin-bottom: 15px;">
-          Upload a CSV file with columns: name, gender, community, zone, phone, email
+      <h2 style="margin-bottom: 20px;">📥 Import Delegates from CSV</h2>
+      <div style="margin-bottom: 20px; padding: 15px; background: #374151; border-radius: 8px;">
+        <h4 style="margin-bottom: 10px;">CSV Format:</h4>
+        <code style="display: block; color: #10b981;">name,gender,community,zone,phone,email</code>
+        <p style="margin-top: 10px; font-size: 14px; color: #9ca3af;">
+          First row should be headers. Each subsequent row is one delegate.
         </p>
-        <form id="importForm">
-          <input type="file" accept=".csv" name="file" class="form-input" required>
-          <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 15px;">
-            📥 Import
-          </button>
-        </form>
+      </div>
+      
+      <textarea 
+        id="csvData" 
+        class="form-input" 
+        style="min-height: 200px; font-family: monospace;"
+        placeholder="name,gender,community,zone,phone,email
+John Doe,Male,Community A,CENTRAL ZONE,08012345678,john@example.com
+Jane Smith,Female,Community B,EASTERN ZONE,08087654321,jane@example.com"></textarea>
+      
+      <div style="display: flex; gap: 10px; margin-top: 20px;">
+        <button type="button" onclick="this.closest('.modal').remove()" class="btn" style="flex: 1; background: #4b5563;">
+          Cancel
+        </button>
+        <button onclick="processCSVImport()" class="btn btn-success" style="flex: 1;">
+          📥 Import
+        </button>
       </div>
     </div>
   `;
   document.body.appendChild(modal);
+}
+
+// Process CSV import
+async function processCSVImport() {
+  const csvData = document.getElementById('csvData').value.trim();
   
-  document.getElementById('importForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const formData = new FormData(e.target);
+  if (!csvData) {
+    alert('Please paste CSV data');
+    return;
+  }
+  
+  try {
+    const lines = csvData.split('\n');
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
     
-    try {
-      const response = await fetch(`${API_BASE}/admin/delegates/import`, {
-        method: 'POST',
-        credentials: 'include',
-        body: formData
+    const delegates = [];
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      
+      const values = lines[i].split(',').map(v => v.trim());
+      const delegate = {};
+      
+      headers.forEach((header, index) => {
+        delegate[header] = values[index] || '';
       });
       
-      const data = await response.json();
-      
-      if (response.ok) {
-        modal.remove();
-        loadDelegates();
-        alert(`Successfully imported ${data.count} delegates!`);
-      } else {
-        alert('Failed to import: ' + (data.error || 'Unknown error'));
+      if (delegate.name) {
+        delegates.push(delegate);
       }
-    } catch (error) {
-      alert('Error: ' + error.message);
     }
-  });
+    
+    if (delegates.length === 0) {
+      alert('No valid delegates found in CSV');
+      return;
+    }
+    
+    const response = await fetch(`${API_BASE}/admin/delegates/import`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ delegates })
+    });
+    
+    const result = await response.json();
+    
+    if (response.ok) {
+      document.querySelector('.modal').remove();
+      loadDelegates();
+      alert(`Import complete! Imported: ${result.imported}, Skipped: ${result.skipped}`);
+    } else {
+      alert('Import failed: ' + (result.error || 'Unknown error'));
+    }
+    
+  } catch (error) {
+    alert('Error processing CSV: ' + error.message);
+  }
 }
 
 // Load candidates
 async function loadCandidates() {
   const content = document.getElementById('candidatesContent');
-  content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  content.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading candidates...</p></div>';
   
   try {
+    console.log('Fetching candidates...');
+    
     const response = await fetch(`${API_BASE}/admin/candidates`, {
       credentials: 'include'
     });
-    const data = await response.json();
     
-    if (data.candidates.length === 0) {
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    console.log('Candidates data received:', data);
+    
+    if (!data.candidates || data.candidates.length === 0) {
       content.innerHTML = `
         <div style="text-align: center; padding: 40px; color: #9ca3af;">
           <p style="font-size: 18px; margin-bottom: 20px;">No candidates yet</p>
@@ -565,42 +645,44 @@ async function loadCandidates() {
     }
     
     // Group by position
-    const grouped = {};
+    const byPosition = {};
     data.candidates.forEach(c => {
-      if (!grouped[c.position_title]) {
-        grouped[c.position_title] = {
-          zone: c.zone,
+      const posTitle = c.position_title || 'Unknown Position';
+      if (!byPosition[posTitle]) {
+        byPosition[posTitle] = {
+          zone: c.position_zone || c.zone,
           candidates: []
         };
       }
-      grouped[c.position_title].candidates.push(c);
+      byPosition[posTitle].candidates.push(c);
     });
     
     let html = '';
-    Object.entries(grouped).forEach(([position, data]) => {
+    Object.keys(byPosition).forEach(posTitle => {
+      const posData = byPosition[posTitle];
       html += `
         <div style="background: #1f2937; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
           <div style="margin-bottom: 15px;">
-            <span class="badge" style="background: #3b82f6;">${data.zone}</span>
-            <h3 style="margin: 8px 0 0 0;">${position}</h3>
+            <span class="badge" style="background: #3b82f6;">${posData.zone}</span>
+            <h3 style="margin: 8px 0 0 0;">${posTitle}</h3>
           </div>
           <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">
       `;
       
-      data.candidates.forEach(c => {
+      posData.candidates.forEach(c => {
         html += `
-          <div style="background: #374151; padding: 15px; border-radius: 8px;">
-            ${c.image_url ? `
-              <img src="${c.image_url}" style="width: 100%; height: 150px; object-fit: cover; border-radius: 6px; margin-bottom: 10px;">
-            ` : `
-              <div style="width: 100%; height: 150px; background: #4b5563; border-radius: 6px; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; color: #9ca3af;">
-                No Image
-              </div>
-            `}
-            <h4 style="margin: 0 0 8px 0;">${c.name}</h4>
-            ${c.gender ? `<p style="color: #9ca3af; font-size: 14px; margin: 4px 0;">${c.gender}</p>` : ''}
-            ${c.community ? `<p style="color: #9ca3af; font-size: 14px; margin: 4px 0;">${c.community}</p>` : ''}
-            <div style="display: flex; gap: 8px; margin-top: 12px;">
+          <div class="card" style="padding: 15px;">
+            ${c.image_url ? 
+              `<img src="${c.image_url}" style="width: 100%; height: 200px; object-fit: cover; border-radius: 8px; margin-bottom: 10px;">` :
+              `<div style="width: 100%; height: 200px; background: #374151; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
+                <span style="font-size: 48px;">👤</span>
+              </div>`
+            }
+            <h4 style="margin-bottom: 8px;">${c.name}</h4>
+            <p style="color: #9ca3af; font-size: 14px; margin-bottom: 10px;">
+              ${c.gender || 'N/A'} • ${c.community || 'N/A'}
+            </p>
+            <div style="display: flex; gap: 5px;">
               <button onclick="editCandidate(${c.id})" class="btn btn-sm btn-success" style="flex: 1;">Edit</button>
               <button onclick="deleteCandidate(${c.id})" class="btn btn-sm btn-danger" style="flex: 1;">Delete</button>
             </div>
@@ -615,16 +697,15 @@ async function loadCandidates() {
     });
     
     content.innerHTML = html;
-    
   } catch (error) {
-    content.innerHTML = '<div class="alert alert-error">Failed to load candidates</div>';
+    console.error('Failed to load candidates:', error);
+    content.innerHTML = `<div class="alert alert-error">Failed to load candidates: ${error.message}</div>`;
   }
 }
 
 // Show add candidate modal
 async function showAddCandidateModal() {
   try {
-    // Get positions
     const response = await fetch(`${API_BASE}/admin/positions`, {
       credentials: 'include'
     });
@@ -634,11 +715,8 @@ async function showAddCandidateModal() {
     modal.className = 'modal';
     modal.innerHTML = `
       <div class="modal-content">
-        <div class="modal-header">
-          <h3 class="modal-title">Add New Candidate</h3>
-          <button class="close-btn" onclick="this.closest('.modal').remove()">×</button>
-        </div>
-        <form id="addCandidateForm">
+        <h2 style="margin-bottom: 20px;">➕ Add New Candidate</h2>
+        <form id="addCandidateForm" enctype="multipart/form-data">
           <div class="form-group">
             <label class="form-label">Name *</label>
             <input type="text" name="name" class="form-input" required>
@@ -681,7 +759,7 @@ async function showAddCandidateModal() {
           <div class="form-group">
             <label class="form-label">Photo</label>
             <input type="file" name="image" accept="image/*" class="form-input">
-            <p style="font-size: 12px; color: #9ca3af; margin-top: 5px;">Optional. Maximum 5MB</p>
+            <p style="font-size: 12px; color: #9ca3af; margin-top: 5px;">Maximum 5MB</p>
           </div>
           
           <div style="display: flex; gap: 10px; margin-top: 20px;">
@@ -729,22 +807,19 @@ async function showAddCandidateModal() {
 // Edit candidate
 async function editCandidate(candidateId) {
   try {
-    const [candidateRes, positionsRes] = await Promise.all([
+    const [candidateResponse, positionsResponse] = await Promise.all([
       fetch(`${API_BASE}/admin/candidates/${candidateId}`, { credentials: 'include' }),
       fetch(`${API_BASE}/admin/positions`, { credentials: 'include' })
     ]);
     
-    const candidate = await candidateRes.json();
-    const positions = await positionsRes.json();
+    const candidate = await candidateResponse.json();
+    const positions = await positionsResponse.json();
     
     const modal = document.createElement('div');
     modal.className = 'modal';
     modal.innerHTML = `
       <div class="modal-content">
-        <div class="modal-header">
-          <h3 class="modal-title">Edit Candidate</h3>
-          <button class="close-btn" onclick="this.closest('.modal').remove()">×</button>
-        </div>
+        <h2 style="margin-bottom: 20px;">✏️ Edit Candidate</h2>
         <form id="editCandidateForm">
           <div class="form-group">
             <label class="form-label">Name (Cannot be changed)</label>
@@ -859,7 +934,8 @@ async function deleteCandidate(id) {
       loadCandidates();
       alert('Candidate deleted successfully');
     } else {
-      alert('Failed to delete candidate');
+      const data = await response.json();
+      alert('Failed to delete candidate: ' + (data.error || 'Unknown error'));
     }
   } catch (error) {
     alert('Error: ' + error.message);
@@ -886,11 +962,8 @@ async function generateAllQR() {
     
     if (response.ok) {
       alert(`Generated ${data.count} QR codes!`);
-      if (confirm('View/Download all QR codes?')) {
-        window.open(`${API_BASE}/admin/qr-codes/download-all`, '_blank');
-      }
     } else {
-      alert('Failed to generate QR codes');
+      alert('Failed to generate QR codes: ' + (data.error || 'Unknown error'));
     }
   } catch (error) {
     alert('Error: ' + error.message);
@@ -920,8 +993,10 @@ async function resetVotes() {
     if (response.ok) {
       alert('All votes have been reset successfully');
       loadStats();
+      loadResults();
     } else {
-      alert('Failed to reset votes');
+      const data = await response.json();
+      alert('Failed to reset votes: ' + (data.error || 'Unknown error'));
     }
   } catch (error) {
     alert('Error: ' + error.message);
@@ -931,16 +1006,24 @@ async function resetVotes() {
 // Load results
 async function loadResults() {
   const content = document.getElementById('resultsContent');
-  content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  content.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading results...</p></div>';
   
   try {
+    console.log('Fetching results...');
+    
     const response = await fetch(`${API_BASE}/results`);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
     const results = await response.json();
+    console.log('Results data received:', results);
     
     let html = '';
     results.forEach(position => {
-      const totalVotes = position.candidates.reduce((sum, c) => sum + c.vote_count, 0);
-      const maxVotes = Math.max(...position.candidates.map(c => c.vote_count));
+      const totalVotes = position.candidates.reduce((sum, c) => sum + (parseInt(c.vote_count) || 0), 0);
+      const maxVotes = Math.max(...position.candidates.map(c => parseInt(c.vote_count) || 0));
       
       html += `
         <div style="background: #1f2937; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
@@ -952,14 +1035,15 @@ async function loadResults() {
       `;
       
       position.candidates.forEach(c => {
-        const percentage = totalVotes > 0 ? ((c.vote_count / totalVotes) * 100).toFixed(1) : 0;
-        const isWinning = c.vote_count === maxVotes && maxVotes > 0;
+        const voteCount = parseInt(c.vote_count) || 0;
+        const percentage = totalVotes > 0 ? ((voteCount / totalVotes) * 100).toFixed(1) : 0;
+        const isWinning = voteCount === maxVotes && maxVotes > 0;
         
         html += `
           <div style="background: ${isWinning ? '#065f46' : '#374151'}; padding: 12px; border-radius: 6px; margin-bottom: 10px; border: ${isWinning ? '2px solid #10b981' : 'none'};">
             <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
               <span style="font-weight: bold;">${isWinning ? '🏆 ' : ''}${c.candidate_name}</span>
-              <span style="font-weight: bold; font-size: 18px;">${c.vote_count}</span>
+              <span style="font-weight: bold; font-size: 18px;">${voteCount}</span>
             </div>
             <div style="height: 8px; background: #1f2937; border-radius: 4px; overflow: hidden;">
               <div style="height: 100%; width: ${percentage}%; background: ${isWinning ? '#10b981' : '#3b82f6'}; transition: width 0.5s;"></div>
@@ -975,9 +1059,11 @@ async function loadResults() {
     content.innerHTML = html || '<p style="text-align: center; color: #9ca3af;">No votes yet</p>';
     
   } catch (error) {
-    content.innerHTML = '<div class="alert alert-error">Failed to load results</div>';
+    console.error('Failed to load results:', error);
+    content.innerHTML = `<div class="alert alert-error">Failed to load results: ${error.message}</div>`;
   }
 }
 
-// Initialize
+// Initialize on page load
+console.log('Admin panel JavaScript loaded');
 checkAuth();

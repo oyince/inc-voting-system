@@ -1,29 +1,33 @@
 {
-  "name": "inc-voting-backend",
+  "name": "inc-voting-system",
   "version": "1.0.0",
-  "description": "INC Voting System Backend with SQLiteCloud",
+  "description": "INC Voting System with SQLiteCloud Database",
   "main": "server-admin.js",
   "scripts": {
-    "install-all": "npm install && cd inc-voting-ui && npm install",
-    "build-ui": "cd inc-voting-ui && npm run build",
-    "build": "npm run install-all && npm run build-ui",
-    "start": "node server-admin.js"
+    "start": "node server-admin.js",
+    "dev": "nodemon server-admin.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [
+    "voting",
+    "sqlitecloud",
+    "nodejs",
+    "express"
+  ],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "@sqlitecloud/drivers": "^1.0.739",
+    "@sqlitecloud/drivers": "^1.2.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
-    "dotenv": "^16.6.1",
+    "dotenv": "^16.4.5",
     "express": "^4.18.2",
-    "express-session": "^1.17.3",
+    "express-session": "^1.18.0",
     "multer": "^1.4.5-lts.1",
-    "papaparse": "^5.4.1",
-    "qrcode": "^1.5.3",
-    "socket.io": "^4.6.1",
-    "sqlite3": "^5.1.6"
+    "qrcode": "^1.5.3"
   },
   "devDependencies": {
-    "nodemon": "^2.0.22"
+    "nodemon": "^3.0.2"
   },
   "engines": {
     "node": ">=18.0.0"
