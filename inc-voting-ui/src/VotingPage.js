@@ -1,12 +1,5 @@
 // src/VotingPage.js
-// MODIFICATIONS:
-// 1. Added Skip button logic (except last page)
-// 2. Added confirmation modal for submission
-// 3. Added 10-second countdown after successful submission
-// 4. Added session clearing and automatic redirect
-// 5. Added navigation protection after submission
-// 6. Updated to use environment variable for API URL
-
+// Fixed version with better candidate loading
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -18,7 +11,6 @@ const API_URL = process.env.REACT_APP_API_URL;
 function VotingPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  //const { token, delegateName } = location.state || {};
   const searchParams = new URLSearchParams(location.search);
   const tokenFromQuery = searchParams.get("token");
 
@@ -33,10 +25,7 @@ function VotingPage() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
   
-  // NEW: Confirmation modal state
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  
-  // NEW: Countdown state
   const [countdown, setCountdown] = useState(10);
   const [showCountdown, setShowCountdown] = useState(false);
 
@@ -47,20 +36,36 @@ function VotingPage() {
       return;
     }
 
-    // Fetch positions and candidates
+    // Fetch positions with candidates
+    console.log('Fetching positions from:', `${API_URL}/positions`);
     axios.get(`${API_URL}/positions`)
       .then(res => {
-        setPositions(res.data);
+        console.log('Positions response:', res.data);
+        
+        if (!res.data || res.data.length === 0) {
+          setError("No positions available");
+          setLoading(false);
+          return;
+        }
+        
+        // Ensure each position has a candidates array
+        const positionsWithCandidates = res.data.map(pos => ({
+          ...pos,
+          candidates: Array.isArray(pos.candidates) ? pos.candidates : []
+        }));
+        
+        console.log('Positions with candidates:', positionsWithCandidates);
+        setPositions(positionsWithCandidates);
         setLoading(false);
       })
       .catch(err => {
         console.error("Error loading positions:", err);
-        setError("Failed to load positions. Please try again.");
+        setError(`Failed to load positions: ${err.response?.data?.error || err.message}`);
         setLoading(false);
       });
   }, [token, navigate]);
 
-  // NEW: Countdown timer effect
+  // Countdown timer effect
   useEffect(() => {
     if (showCountdown && countdown > 0) {
       const timer = setTimeout(() => {
@@ -68,12 +73,11 @@ function VotingPage() {
       }, 1000);
       return () => clearTimeout(timer);
     } else if (showCountdown && countdown === 0) {
-      // Clear session and redirect
       navigate("/", { replace: true, state: null });
     }
   }, [showCountdown, countdown, navigate]);
 
-  // NEW: Prevent back navigation after submission
+  // Prevent back navigation after submission
   useEffect(() => {
     if (submitted) {
       const handlePopState = (e) => {
@@ -147,7 +151,7 @@ function VotingPage() {
     );
   }
 
-  // NEW: Success screen with countdown
+  // Success screen with countdown
   if (submitted) {
     return (
       <div className="vote-page">
@@ -183,7 +187,6 @@ function VotingPage() {
               </p>
             </div>
             
-            {/* NEW: Countdown display */}
             {showCountdown && (
               <div style={{
                 backgroundColor: "#3b82f6",
@@ -223,10 +226,12 @@ function VotingPage() {
       </div>
     );
   }
+
+  // Ensure candidates array exists
+  const candidates = Array.isArray(currentPosition.candidates) ? currentPosition.candidates : [];
   
   const progress = ((currentPage + 1) / positions.length) * 100;
   const isLastPage = currentPage === positions.length - 1;
-  // On last page, allow submission even without voting for that position
   const canProceed = isLastPage ? true : votes[currentPosition.id] !== undefined;
 
   const handleVote = (candidateId) => {
@@ -236,17 +241,16 @@ function VotingPage() {
     }));
   };
 
-  // NEW: Skip handler - moves to next without saving vote for current position
   const handleSkip = () => {
-    // Remove vote for current position if it exists
     setVotes(prev => {
       const newVotes = { ...prev };
       delete newVotes[currentPosition.id];
       return newVotes;
     });
     
-    // Move to next position
-    if (currentPage < positions.length - 1) {
+    if (isLastPage) {
+      setShowConfirmModal(true);
+    } else {
       setCurrentPage(currentPage + 1);
     }
   };
@@ -260,40 +264,34 @@ function VotingPage() {
 
   const handleNext = () => {
     if (isLastPage) {
-      // Show confirmation modal
       setShowConfirmModal(true);
-    } else {
+    } else if (canProceed) {
       setCurrentPage(currentPage + 1);
       setError("");
     }
   };
 
-  // NEW: Cancel submit - close modal
   const handleCancelSubmit = () => {
     setShowConfirmModal(false);
   };
 
-  // NEW: Confirm submit - actually submit votes
   const handleConfirmSubmit = async () => {
     setShowConfirmModal(false);
     setIsSubmitting(true);
     setError("");
 
-    const votesArray = Object.entries(votes).map(([position_id, candidate_id]) => ({
-      position_id: parseInt(position_id),
-      candidate_id: parseInt(candidate_id)
-    }));
-
     try {
-      await axios.post(`${API_URL}/submit-votes`, {
+      console.log('Submitting votes:', votes);
+      const response = await axios.post(`${API_URL}/submit-votes`, {
         token,
-        votes: votesArray
+        votes
       });
 
+      console.log('Submit response:', response.data);
       setSubmitted(true);
       setShowCountdown(true);
     } catch (err) {
-      console.error("Error submitting votes:", err);
+      console.error('Submit error:', err);
       setError(err.response?.data?.error || "Failed to submit votes. Please try again.");
       setIsSubmitting(false);
     }
@@ -304,21 +302,8 @@ function VotingPage() {
       <Navbar />
       <div className="vote-main">
         <div className="vote-container">
-          {/* Progress Bar */}
+          {/* Progress bar */}
           <div style={{ marginBottom: "24px" }}>
-            <div style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: "8px"
-            }}>
-              <span style={{ color: "#9ca3af", fontSize: "14px" }}>
-                Position {currentPage + 1} of {positions.length}
-              </span>
-              <span style={{ color: "#9ca3af", fontSize: "14px" }}>
-                {Math.round(progress)}% Complete
-              </span>
-            </div>
             <div style={{
               height: "8px",
               backgroundColor: "#374151",
@@ -329,34 +314,33 @@ function VotingPage() {
                 height: "100%",
                 width: `${progress}%`,
                 backgroundColor: "#3b82f6",
-                transition: "width 0.3s ease"
+                transition: "width 0.3s"
               }} />
             </div>
+            <p style={{
+              color: "#9ca3af",
+              fontSize: "14px",
+              marginTop: "8px",
+              textAlign: "center"
+            }}>
+              Position {currentPage + 1} of {positions.length}
+            </p>
           </div>
 
-          {/* Delegate Info */}
-          <div className="verify-box" style={{ marginBottom: "24px" }}>
-            <div style={{ fontSize: "14px", color: "#9ca3af", marginBottom: "4px" }}>
-              Voting as:
-            </div>
-            <div style={{ fontSize: "18px", fontWeight: "bold" }}>
-              {delegateName}
-            </div>
-          </div>
-
-          {/* Position Header */}
+          {/* Position header */}
           <div style={{
             backgroundColor: "#1f2937",
-            borderRadius: "8px",
             padding: "20px",
-            marginBottom: "24px"
+            borderRadius: "8px",
+            marginBottom: "24px",
+            textAlign: "center"
           }}>
             <div style={{
               display: "inline-block",
               backgroundColor: "#3b82f6",
               color: "white",
-              padding: "4px 12px",
-              borderRadius: "12px",
+              padding: "4px 16px",
+              borderRadius: "16px",
               fontSize: "12px",
               fontWeight: "bold",
               marginBottom: "12px"
@@ -365,100 +349,110 @@ function VotingPage() {
             </div>
             <h2 style={{
               fontSize: "28px",
-              fontWeight: "bold",
               marginBottom: "8px"
             }}>
               {currentPosition.title}
             </h2>
-            <p style={{
-              color: "#9ca3af",
-              fontSize: "16px"
-            }}>
-              Select one candidate
+            <p style={{ color: "#9ca3af", fontSize: "16px" }}>
+              Select one candidate to vote for
             </p>
           </div>
 
           {/* Candidates */}
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
-            gap: "16px",
-            marginBottom: "24px"
-          }}>
-            {currentPosition.candidates.map(candidate => {
-              const isSelected = votes[currentPosition.id] === candidate.id;
-              
-              return (
-                <button
-                  key={candidate.id}
-                  onClick={() => handleVote(candidate.id)}
-                  style={{
-                    backgroundColor: isSelected ? "#1e3a8a" : "#1f2937",
-                    border: isSelected ? "3px solid #3b82f6" : "2px solid #374151",
-                    borderRadius: "12px",
-                    padding: "20px",
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                    textAlign: "center"
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isSelected) {
-                      e.currentTarget.style.borderColor = "#4b5563";
-                      e.currentTarget.style.transform = "translateY(-2px)";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isSelected) {
-                      e.currentTarget.style.borderColor = "#374151";
-                      e.currentTarget.style.transform = "translateY(0)";
-                    }
-                  }}
-                >
-                  {candidate.image_url && (
-                    <div style={{
-                      width: "120px",
-                      height: "120px",
-                      margin: "0 auto 16px",
-                      borderRadius: "50%",
-                      overflow: "hidden",
-                      backgroundColor: "#374151",
-                      border: isSelected ? "4px solid #3b82f6" : "none"
+          {candidates.length === 0 ? (
+            <div style={{
+              backgroundColor: "#374151",
+              padding: "40px",
+              borderRadius: "8px",
+              textAlign: "center",
+              marginBottom: "24px"
+            }}>
+              <p style={{ color: "#9ca3af", fontSize: "18px" }}>
+                No candidates available for this position
+              </p>
+            </div>
+          ) : (
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+              gap: "16px",
+              marginBottom: "24px"
+            }}>
+              {candidates.map(candidate => {
+                const isSelected = votes[currentPosition.id] === candidate.id;
+                
+                return (
+                  <button
+                    key={candidate.id}
+                    onClick={() => handleVote(candidate.id)}
+                    style={{
+                      backgroundColor: isSelected ? "#1e3a8a" : "#1f2937",
+                      border: isSelected ? "3px solid #3b82f6" : "2px solid #374151",
+                      borderRadius: "12px",
+                      padding: "20px",
+                      cursor: "pointer",
+                      transition: "all 0.2s",
+                      textAlign: "center"
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.borderColor = "#4b5563";
+                        e.currentTarget.style.transform = "translateY(-2px)";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.borderColor = "#374151";
+                        e.currentTarget.style.transform = "translateY(0)";
+                      }
+                    }}
+                  >
+                    {candidate.image_url && (
+                      <div style={{
+                        width: "120px",
+                        height: "120px",
+                        margin: "0 auto 16px",
+                        borderRadius: "50%",
+                        overflow: "hidden",
+                        backgroundColor: "#374151",
+                        border: "3px solid " + (isSelected ? "#3b82f6" : "#4b5563")
+                      }}>
+                        <img
+                          src={candidate.image_url}
+                          alt={candidate.name}
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover"
+                          }}
+                        />
+                      </div>
+                    )}
+                    
+                    <h3 style={{
+                      fontSize: "20px",
+                      fontWeight: "bold",
+                      marginBottom: "8px",
+                      color: "white"
                     }}>
-                      <img
-                        src={`${API_URL}${candidate.image_url}`}
-                        alt={candidate.name}
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "cover"
-                        }}
-                      />
+                      {candidate.name}
+                    </h3>
+                    
+                    <div style={{
+                      padding: "8px 16px",
+                      borderRadius: "8px",
+                      fontWeight: "bold",
+                      textAlign: "center",
+                      backgroundColor: isSelected ? "#16a34a" : "#374151",
+                      color: isSelected ? "white" : "#9ca3af"
+                    }}>
+                      {isSelected ? "SELECTED" : "SELECT"}
                     </div>
-                  )}
-                  
-                  <h3 style={{
-                    fontSize: "20px",
-                    fontWeight: "bold",
-                    marginBottom: "8px",
-                    color: "white"
-                  }}>
-                    {candidate.name}
-                  </h3>
-                  
-                  <div style={{
-                    padding: "8px 16px",
-                    borderRadius: "8px",
-                    fontWeight: "bold",
-                    textAlign: "center",
-                    backgroundColor: isSelected ? "#16a34a" : "#374151",
-                    color: isSelected ? "white" : "#9ca3af"
-                  }}>
-                    {isSelected ? "SELECTED" : "SELECT"}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {/* Error Message */}
           {error && (
@@ -502,7 +496,6 @@ function VotingPage() {
             </button>
 
             <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
-              {/* NEW: Skip button - only show if NOT last page */}
               {!isLastPage && (
                 <button
                   onClick={handleSkip}
@@ -595,7 +588,7 @@ function VotingPage() {
         </div>
       </div>
 
-      {/* NEW: Confirmation Modal */}
+      {/* Confirmation Modal */}
       {showConfirmModal && (
         <div style={{
           position: "fixed",

@@ -2,7 +2,7 @@
 // Admin panel functionality for SQLiteCloud connection
 // Location: INC-VOTING-SYSTEM/admin-panel/js/admin.js
 
-const API_URL = "";
+const API_URL ="";
 
 // Helper function to handle API errors
 function handleApiError(error, defaultMessage) {
@@ -14,7 +14,7 @@ function handleApiError(error, defaultMessage) {
 async function checkAuth() {
   try {
     console.log('Checking authentication status...');
-    const response = await fetch(`${API_BASE}/admin/auth-status`, {
+    const response = await fetch(`${API_URL}/admin/auth-status`, {
       credentials: "include",
     });
     const data = await response.json();
@@ -41,7 +41,7 @@ document.getElementById("loginForm")?.addEventListener("submit", async (e) => {
   console.log('Attempting login for user:', username);
 
   try {
-    const res = await fetch(`${API_BASE}/admin/login`, {
+    const res = await fetch(`${API_URL}/admin/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -76,7 +76,7 @@ document.getElementById("loginForm")?.addEventListener("submit", async (e) => {
 // Logout
 async function logout() {
   try {
-    await fetch(`${API_BASE}/admin/logout`, {
+    await fetch(`${API_URL}/admin/logout`, {
       method: 'POST',
       credentials: 'include'
     });
@@ -126,7 +126,7 @@ async function loadStats() {
   try {
     console.log('Loading dashboard stats...');
     
-    const response = await fetch(`${API_BASE}/admin/stats`, {
+    const response = await fetch(`${API_URL}/admin/stats`, {
       credentials: 'include'
     });
     
@@ -186,7 +186,7 @@ async function loadDelegates() {
   try {
     console.log('Fetching delegates...');
     
-    const response = await fetch(`${API_BASE}/admin/delegates`, {
+    const response = await fetch(`${API_URL}/admin/delegates`, {
       credentials: 'include'
     });
     
@@ -354,7 +354,7 @@ function showAddDelegateModal() {
     const data = Object.fromEntries(formData);
     
     try {
-      const response = await fetch(`${API_BASE}/admin/delegates`, {
+      const response = await fetch(`${API_URL}/admin/delegates`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -378,7 +378,7 @@ function showAddDelegateModal() {
 // View delegate QR code
 async function viewDelegateQR(delegateId) {
   try {
-    const response = await fetch(`${API_BASE}/admin/delegates/${delegateId}`, {
+    const response = await fetch(`${API_URL}/admin/delegates/${delegateId}`, {
       credentials: 'include'
     });
     const delegate = await response.json();
@@ -404,7 +404,7 @@ async function viewDelegateQR(delegateId) {
 // Edit delegate
 async function editDelegate(delegateId) {
   try {
-    const response = await fetch(`${API_BASE}/admin/delegates/${delegateId}`, {
+    const response = await fetch(`${API_URL}/admin/delegates/${delegateId}`, {
       credentials: 'include'
     });
     const delegate = await response.json();
@@ -473,7 +473,7 @@ async function editDelegate(delegateId) {
       const data = Object.fromEntries(formData);
       
       try {
-        const response = await fetch(`${API_BASE}/admin/delegates/${delegateId}`, {
+        const response = await fetch(`${API_URL}/admin/delegates/${delegateId}`, {
           method: 'PUT',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -503,7 +503,7 @@ async function deleteDelegate(id) {
   if (!confirm('Are you sure you want to delete this delegate? This will also delete their votes.')) return;
   
   try {
-    const response = await fetch(`${API_BASE}/admin/delegates/${id}`, {
+    const response = await fetch(`${API_URL}/admin/delegates/${id}`, {
       method: 'DELETE',
       credentials: 'include'
     });
@@ -591,7 +591,7 @@ async function processCSVImport() {
       return;
     }
     
-    const response = await fetch(`${API_BASE}/admin/delegates/import`, {
+    const response = await fetch(`${API_URL}/admin/delegates/import`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -621,7 +621,7 @@ async function loadCandidates() {
   try {
     console.log('Fetching candidates...');
     
-    const response = await fetch(`${API_BASE}/admin/candidates`, {
+    const response = await fetch(`${API_URL}/admin/candidates`, {
       credentials: 'include'
     });
     
@@ -706,7 +706,7 @@ async function loadCandidates() {
 // Show add candidate modal
 async function showAddCandidateModal() {
   try {
-    const response = await fetch(`${API_BASE}/admin/positions`, {
+    const response = await fetch(`${API_URL}/admin/positions`, {
       credentials: 'include'
     });
     const positions = await response.json();
@@ -780,7 +780,7 @@ async function showAddCandidateModal() {
       const formData = new FormData(e.target);
       
       try {
-        const response = await fetch(`${API_BASE}/admin/candidates`, {
+        const response = await fetch(`${API_URL}/admin/candidates`, {
           method: 'POST',
           credentials: 'include',
           body: formData
@@ -808,8 +808,8 @@ async function showAddCandidateModal() {
 async function editCandidate(candidateId) {
   try {
     const [candidateResponse, positionsResponse] = await Promise.all([
-      fetch(`${API_BASE}/admin/candidates/${candidateId}`, { credentials: 'include' }),
-      fetch(`${API_BASE}/admin/positions`, { credentials: 'include' })
+      fetch(`${API_URL}/admin/candidates/${candidateId}`, { credentials: 'include' }),
+      fetch(`${API_URL}/admin/positions`, { credentials: 'include' })
     ]);
     
     const candidate = await candidateResponse.json();
@@ -896,7 +896,7 @@ async function editCandidate(candidateId) {
       const formData = new FormData(e.target);
       
       try {
-        const response = await fetch(`${API_BASE}/admin/candidates/${candidateId}`, {
+        const response = await fetch(`${API_URL}/admin/candidates/${candidateId}`, {
           method: 'PUT',
           credentials: 'include',
           body: formData
@@ -925,7 +925,7 @@ async function deleteCandidate(id) {
   if (!confirm('Are you sure you want to delete this candidate?')) return;
   
   try {
-    const response = await fetch(`${API_BASE}/admin/candidates/${id}`, {
+    const response = await fetch(`${API_URL}/admin/candidates/${id}`, {
       method: 'DELETE',
       credentials: 'include'
     });
@@ -951,7 +951,7 @@ async function generateAllQR() {
   btn.textContent = 'Generating...';
   
   try {
-    const response = await fetch(`${API_BASE}/admin/qr-codes/generate`, {
+    const response = await fetch(`${API_URL}/admin/qr-codes/generate`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -985,7 +985,7 @@ function confirmResetVotes() {
 // Reset votes
 async function resetVotes() {
   try {
-    const response = await fetch(`${API_BASE}/admin/reset-votes`, {
+    const response = await fetch(`${API_URL}/admin/reset-votes`, {
       method: 'POST',
       credentials: 'include'
     });
@@ -1011,7 +1011,7 @@ async function loadResults() {
   try {
     console.log('Fetching results...');
     
-    const response = await fetch(`${API_BASE}/results`);
+    const response = await fetch(`${API_URL}/results`);
     
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
