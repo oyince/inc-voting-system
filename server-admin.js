@@ -200,44 +200,23 @@ app.get('/admin/auth-status', (req, res) => {
   }
 });
 
-app.post('/admin/login', async (req, res) => {
+app.post("/admin/login", async (req, res) => {
+  const { username, password } = req.body;
   try {
-    const { username, password } = req.body;
-    console.log(`Login attempt: ${username}`);
+    const user = await dbGet("SELECT * FROM admin_users WHERE username = ?", [username]);
 
-    // 1. Fetch user
-    const result = await db.sql('SELECT * FROM admin_users WHERE username = ? LIMIT 1', [username]);
-    
-    // 🔍 THE CRITICAL FIX: SQLiteCloud returns an object where the rows are in .data
-    // If you just used result[0], it would be undefined.
-    let user = null;
-    if (result && result.data && result.data.length > 0) {
-      user = result.data[0];
-    } else if (Array.isArray(result) && result.length > 0) {
-      user = result[0];
+    // Simple plain-text check
+    if (!user || password !== user.password_hash) {
+      console.log("❌ Login failed for user:", username);
+      return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    if (!user) {
-      console.log('User not found in result structure:', JSON.stringify(result));
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    // 2. Plain Text Password Comparison
-    // Table structure: admin_users (id, username, password, date_created)
-    if (user.password === password) {
-      req.session.admin = {
-        id: user.id,
-        username: user.username
-      };
-      console.log('✅ Login successful, session set:', req.session.admin);
-      return res.json({ success: true });
-    } else {
-      console.log('❌ Password mismatch. Expected:', user.password, 'Got:', password);
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-  } catch (error) {
-    console.error('Database Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    // Success!
+    req.session.admin = { id: user.id, username: user.username };
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Server Error:", err);
+    res.status(500).json({ error: "Login failed" });
   }
 });
 
