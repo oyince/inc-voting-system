@@ -222,15 +222,17 @@ app.post('/admin/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // 2. Plain Text Comparison (as requested)
-    // IMPORTANT: Check if your DB column is 'password_hash' or 'password'
-    if (user.password_hash === password) {
-      req.session.authenticated = true;
-      req.session.username = user.username;
-      console.log('Login successful');
+    // 2. Plain Text Password Comparison
+    // Table structure: admin_users (id, username, password, date_created)
+    if (user.password === password) {
+      req.session.admin = {
+        id: user.id,
+        username: user.username
+      };
+      console.log('✅ Login successful, session set:', req.session.admin);
       return res.json({ success: true });
     } else {
-      console.log('Password mismatch');
+      console.log('❌ Password mismatch. Expected:', user.password, 'Got:', password);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
   } catch (error) {
